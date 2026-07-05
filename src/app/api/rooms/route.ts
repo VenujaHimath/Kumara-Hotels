@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { hotelId, roomName, price, dayoutPrice, capacity, status, image, facilities } = body;
+    const { hotelId, roomName, price, dayoutPrice, capacity, status, image, facilities, totalUnits } = body;
 
     if (!hotelId || !roomName || price === undefined || !capacity || !image) {
       return NextResponse.json(
@@ -25,6 +25,7 @@ export async function POST(request: Request) {
         status: status || 'Available',
         image,
         facilities: facilities || '',
+        totalUnits: totalUnits !== undefined ? parseInt(totalUnits) : 1,
       },
     });
 
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { roomId, status, roomName, price, dayoutPrice, capacity, image, facilities } = body;
+    const { roomId, status, roomName, price, dayoutPrice, capacity, image, facilities, totalUnits } = body;
 
     if (!roomId) {
       return NextResponse.json({ success: false, error: 'roomId is required.' }, { status: 400 });
@@ -55,6 +56,7 @@ export async function PATCH(request: Request) {
     if (capacity !== undefined) data.capacity = parseInt(capacity);
     if (image !== undefined) data.image = image;
     if (facilities !== undefined) data.facilities = facilities;
+    if (totalUnits !== undefined) data.totalUnits = parseInt(totalUnits);
 
     const updatedRoom = await prisma.room.update({
       where: { id: roomId },

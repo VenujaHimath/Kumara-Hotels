@@ -88,13 +88,13 @@ export default function HotelDetailPage({ params }: HotelDetailPageProps) {
 
           <h1 className="text-4xl md:text-6xl font-serif font-extrabold text-white">{hotel.name}</h1>
 
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
             <p className="text-sm md:text-base font-light text-luxury-silver-muted max-w-2xl leading-relaxed">
               {hotel.description}
             </p>
             <button
               onClick={() => handleBookRedirect()}
-              className="px-8 py-4 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded font-sans font-bold tracking-widest text-xs uppercase transition-all duration-300 shadow-lg shadow-luxury-gold/20 w-fit shrink-0 animate-shine"
+              className="w-full sm:w-auto px-8 py-4 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded font-sans font-bold tracking-widest text-xs uppercase transition-all duration-300 shadow-lg shadow-luxury-gold/20 shrink-0 animate-shine min-h-[50px]"
             >
               Check Stays & Prices
             </button>
@@ -126,7 +126,7 @@ export default function HotelDetailPage({ params }: HotelDetailPageProps) {
             <button
               type="button"
               onClick={() => openWhatsApp({ hotelName: hotel.name })}
-              className="w-full py-3 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded text-xs font-sans font-bold tracking-widest uppercase transition-all duration-300 flex items-center justify-center space-x-2"
+              className="w-full py-4 bg-[#25D366] hover:bg-[#20ba5a] text-white rounded text-sm font-sans font-bold tracking-widest uppercase transition-all duration-300 flex items-center justify-center space-x-2 min-h-[50px]"
             >
               <MessageCircle className="h-4 w-4" />
               <span>WhatsApp Inquiry</span>
@@ -154,7 +154,7 @@ export default function HotelDetailPage({ params }: HotelDetailPageProps) {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
             {displayRooms.map((room) => (
               <div
                 key={room.id}
@@ -167,17 +167,6 @@ export default function HotelDetailPage({ params }: HotelDetailPageProps) {
                     fill
                     className="object-cover object-center group-hover:scale-105 transition-transform duration-500"
                   />
-                  <div
-                    className={`absolute top-4 right-4 text-[9px] font-sans tracking-widest uppercase px-2.5 py-1 rounded font-bold ${
-                      room.status === 'Available'
-                        ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-400'
-                        : room.status === 'Booked'
-                          ? 'bg-amber-500/20 border border-amber-500/50 text-amber-400'
-                          : 'bg-red-500/20 border border-red-500/50 text-red-400'
-                    }`}
-                  >
-                    {room.status}
-                  </div>
                 </div>
 
                 <div className="p-6 flex-grow flex flex-col justify-between space-y-6">
@@ -197,18 +186,13 @@ export default function HotelDetailPage({ params }: HotelDetailPageProps) {
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t border-white/5 flex items-end justify-between gap-3">
+                  <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                     <RoomPriceDisplay room={room} />
                     <button
                       onClick={() => handleBookRedirect(room.id)}
-                      disabled={room.status !== 'Available'}
-                      className={`px-5 py-2.5 text-xs font-sans tracking-widest uppercase font-bold rounded transition-all duration-300 ${
-                        room.status === 'Available'
-                          ? 'bg-luxury-gold hover:bg-luxury-gold-dark text-black'
-                          : 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5'
-                      }`}
+                      className="w-full sm:w-auto px-5 py-3 text-sm font-sans tracking-widest uppercase font-bold rounded transition-all duration-300 min-h-[44px] bg-luxury-gold hover:bg-luxury-gold-dark text-black"
                     >
-                      {room.status === 'Available' ? 'Book Room' : 'Unavailable'}
+                      Book Room
                     </button>
                   </div>
                 </div>

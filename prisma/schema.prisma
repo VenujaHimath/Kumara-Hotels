@@ -1,91 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 model Hotel {
-  id              String   @id @default(uuid())
-  slug            String?  @unique
-  name            String
-  description     String
-  location        String
-  image           String
-  facilities      String   // Comma-separated list of facilities
-  nearbyPlaces    String?  // Comma-separated nearby attractions
-  gallery         String?  // JSON array of gallery images
-  hasDayoutRates  Boolean  @default(false)
-  rooms           Room[]
-  bookings        Booking[]
+  id             String    @id @default(uuid())
+  name           String
+  description    String
+  location       String
+  image          String
+  facilities     String
+  gallery        String?
+  hasDayoutRates Boolean   @default(false)
+  nearbyPlaces   String?
+  slug           String?   @unique
+  bookings       Booking[]
+  rooms          Room[]
 }
 
 model Room {
   id          String    @id @default(uuid())
   hotelId     String
-  hotel       Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   roomName    String
   price       Float
-  dayoutPrice Float?
   capacity    Int
-  status      String    // "Available", "Booked", "Maintenance"
+  status      String
   image       String
   facilities  String
+  dayoutPrice Float?
+  totalUnits  Int       @default(1)
   bookings    Booking[]
+  hotel       Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
 }
 
 model Booking {
-  id           String   @id @default(uuid())
-  reservationId String   @unique
-  customerName String
-  phone        String
-  email        String
-  customerId   String?
-  customer     Customer? @relation(fields: [customerId], references: [id])
-  hotelId      String
-  hotel        Hotel    @relation(fields: [hotelId], references: [id])
-  roomId       String
-  room         Room     @relation(fields: [roomId], references: [id])
-  checkIn      DateTime
-  checkOut     DateTime
-  guests       Int
-  status       String   // PENDING_PAYMENT, PAYMENT_REVIEW, CONFIRMED, CANCELLED
-  totalAmount  Float
-  payments     Payment[]
-  createdAt    DateTime @default(now())
+  id            String    @id @default(uuid())
+  reservationId String    @unique
+  customerName  String
+  phone         String
+  email         String
+  customerId    String?
+  hotelId       String
+  roomId        String
+  checkIn       DateTime
+  checkOut      DateTime
+  guests        Int
+  status        String
+  bookingType   String    @default("Night Stay") // "Night Stay" | "Day Out"
+  totalAmount   Float
+  createdAt     DateTime  @default(now())
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  hotel         Hotel     @relation(fields: [hotelId], references: [id])
+  room          Room      @relation(fields: [roomId], references: [id])
+  payments      Payment[]
 }
 
 model Payment {
   id            String   @id @default(uuid())
   bookingId     String
-  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   amount        Float
-  paymentMethod String   // ONLINE, BANK_TRANSFER
-  paymentStatus String   // PENDING, PAID, REJECTED
+  paymentMethod String
+  paymentStatus String
   receiptUrl    String?
   transactionId String?
   createdAt     DateTime @default(now())
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
 model Admin {
-  id          String   @id @default(uuid())
-  name        String
-  email       String   @unique
-  password    String
-  employeeId  String   @unique
-  role        String   @default("admin") // "admin", "manager", "staff"
-  hasAccess   Boolean  @default(true)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  name       String
+  email      String   @unique
+  password   String
+  employeeId String   @unique
+  role       String   @default("admin")
+  createdAt  DateTime @default(now())
+  hasAccess  Boolean  @default(true)
 }
 
 model Customer {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
-  email     String   @unique
+  email     String    @unique
   phone     String
   password  String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   bookings  Booking[]
 }

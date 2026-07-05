@@ -29,6 +29,82 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
+// ── Self-contained total-units input ────────────────────────────────────────
+// Owns its own local state so parent re-renders never reset the typed value.
+// `key={roomId + '-' + savedValue}` ensures the component remounts only when
+// the DB value actually changes.
+function RoomUnitsInput({
+  roomId,
+  savedValue,
+  onSaved,
+}: {
+  roomId: string;
+  savedValue: number;
+  onSaved: (newVal: number) => void;
+}) {
+  const [value, setValue] = React.useState(String(savedValue));
+  const [saving, setSaving] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+
+  const isDirty = parseInt(value) !== savedValue && value !== '';
+
+  const handleSave = async () => {
+    const parsed = parseInt(value);
+    if (!parsed || parsed < 1) {
+      setValue(String(savedValue));
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, totalUnits: parsed }),
+      });
+      if (res.ok) {
+        onSaved(parsed);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        setValue(String(savedValue));
+      }
+    } catch {
+      setValue(String(savedValue));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        type="number"
+        min={1}
+        value={value}
+        onChange={e => { setValue(e.target.value); setSaved(false); }}
+        onKeyDown={e => { if (e.key === 'Enter') handleSave(); }}
+        disabled={saving}
+        className={`w-14 bg-luxury-obsidian border rounded px-2 py-1 text-white text-xs focus:outline-none text-center disabled:opacity-50 transition-colors duration-200 ${
+          isDirty ? 'border-luxury-gold' : 'border-white/10 focus:border-luxury-gold'
+        }`}
+      />
+      {saving ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-luxury-gold shrink-0" />
+      ) : saved ? (
+        <Check className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+      ) : isDirty ? (
+        <button
+          onClick={handleSave}
+          title="Save total units"
+          className="px-2 py-1 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded text-[9px] font-bold uppercase tracking-wider transition-colors duration-200 shrink-0"
+        >
+          Save
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'overview' | 'hotels' | 'rooms' | 'bookings' | 'customers' | 'access-control' | 'profile'>('overview');
@@ -60,6 +136,89 @@ export default function AdminDashboard() {
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [editingHotel, setEditingHotel] = useState<any | null>(null);
+
+  // ── Rooms Inventory accordion ─────────────────────────────────────────────
+  const [expandedHotelIds, setExpandedHotelIds] = useState<Set<string>>(new Set());
+  const toggleHotelExpand = (id: string) =>
+    setExpandedHotelIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  // Inline "Add Room" form per hotel (keyed by hotelId)
+  const [addRoomFor, setAddRoomFor] = useState<string | null>(null);
+  const [newRoomForm, setNewRoomForm] = useState({ roomName: '', price: '', dayoutPrice: '', capacity: '2', facilities: 'AC, WiFi, TV', status: 'Available', image: '' });
+  const [addRoomLoading, setAddRoomLoading] = useState(false);
+  const [addRoomError, setAddRoomError] = useState('');
+
+  const handleAddRoom = async (hotelId: string) => {
+    if (!newRoomForm.roomName || !newRoomForm.price || !newRoomForm.image) {
+      setAddRoomError('Room name, price and image URL are required.');
+      return;
+    }
+    setAddRoomLoading(true);
+    setAddRoomError('');
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hotelId,
+          roomName: newRoomForm.roomName,
+          price: newRoomForm.price,
+          dayoutPrice: newRoomForm.dayoutPrice || null,
+          capacity: newRoomForm.capacity,
+          status: newRoomForm.status,
+          image: newRoomForm.image,
+          facilities: newRoomForm.facilities,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        // Refresh hotels to show new room
+        const hotelsRes = await fetch('/api/hotels');
+        const hotelsJson = await hotelsRes.json();
+        if (hotelsRes.ok && hotelsJson.success) setHotels(hotelsJson.data);
+        setNewRoomForm({ roomName: '', price: '', dayoutPrice: '', capacity: '2', facilities: 'AC, WiFi, TV', status: 'Available', image: '' });
+        setAddRoomFor(null);
+      } else {
+        setAddRoomError(json.error || 'Failed to add room.');
+      }
+    } catch {
+      setAddRoomError('Server error. Please try again.');
+    } finally {
+      setAddRoomLoading(false);
+    }
+  };
+
+  // ── Booking filters & sort ────────────────────────────────────────────────
+  const [bookingFilterHotel, setBookingFilterHotel] = useState('');
+  const [bookingFilterFrom, setBookingFilterFrom] = useState('');
+  const [bookingFilterTo, setBookingFilterTo] = useState('');
+  const [bookingSort, setBookingSort] = useState<'date-desc' | 'date-asc' | 'hotel-asc'>('date-desc');
+
+  const filteredBookings = bookings
+    .filter(b => {
+      if (bookingFilterHotel && b.hotel?.id !== bookingFilterHotel) return false;
+      if (bookingFilterFrom) {
+        const checkIn = new Date(b.checkIn);
+        if (checkIn < new Date(bookingFilterFrom)) return false;
+      }
+      if (bookingFilterTo) {
+        const checkIn = new Date(b.checkIn);
+        if (checkIn > new Date(bookingFilterTo)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (bookingSort === 'date-asc') return new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime();
+      if (bookingSort === 'hotel-asc') return (a.hotel?.name || '').localeCompare(b.hotel?.name || '');
+      return new Date(b.checkIn).getTime() - new Date(a.checkIn).getTime(); // date-desc default
+    });
+
+  // ── Room units local state (controlled inputs) ────────────────────────────
+  // Handled by a self-contained RoomUnitsInput component — no shared map needed
 
   useEffect(() => {
     const userStr = localStorage.getItem('kumara_admin_user');
@@ -597,86 +756,197 @@ export default function AdminDashboard() {
           />
         )}
 
-        {/* Tab 3: Rooms Inventory */}
+        {/* Tab 3: Rooms Inventory — hotel accordion */}
         {activeTab === 'rooms' && (
-          <div className="bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-lg p-6 shadow-xl space-y-6">
-            <div className="flex items-center justify-between border-b border-white/5 pb-2">
-              <h3 className="text-xl font-serif text-white">Suites Inventory</h3>
-              <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded">
-                ✓ Changes saved to database
-              </span>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-serif text-white">Rooms Inventory</h3>
+              <span className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 rounded">✓ Changes saved to database</span>
             </div>
 
             {hotelsLoading ? (
               <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-luxury-gold" /></div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-white/5 text-luxury-silver-muted uppercase tracking-wider">
-                      <th className="pb-3 font-medium">Hotel Destination</th>
-                      <th className="pb-3 font-medium">Suite Name</th>
-                      <th className="pb-3 font-medium">Capacity</th>
-                      <th className="pb-3 font-medium">Rate/Night</th>
-                      <th className="pb-3 font-medium">Live Status</th>
-                      <th className="pb-3 font-medium text-right">Update Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allRooms.map((room) => (
-                      <tr key={room.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
-                        <td className="py-4 text-white font-medium">{room.hotelName}</td>
-                        <td className="py-4 text-luxury-silver-muted font-bold">{room.roomName}</td>
-                        <td className="py-4 text-luxury-silver-muted">{room.capacity} Guests</td>
-                        <td className="py-4 font-semibold text-luxury-gold">Rs. {room.price?.toLocaleString()}</td>
-                        <td className="py-4">
-                          <span className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
-                            room.status === 'Available'
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                              : room.status === 'Booked'
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-red-500/10 text-red-400 border border-red-500/20'
-                          }`}>
-                            {room.status}
-                          </span>
-                        </td>
-                        <td className="py-4 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            <button
-                              onClick={() => {
-                                const fullHotel = hotels.find((h) => h.id === room.hotelId);
-                                if (fullHotel) setEditingHotel(fullHotel);
-                                else setActiveTab('hotels');
-                              }}
-                              title="Edit room details"
-                              className="p-1.5 hover:bg-luxury-gold/20 rounded border border-white/5 hover:border-luxury-gold/40 text-luxury-gold transition-colors duration-200"
-                            >
-                              <Edit3 className="h-3.5 w-3.5" />
-                            </button>
-                            {roomStatusUpdating === room.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-luxury-gold" />
-                            ) : (
-                              <select
-                                value={room.status}
-                                onChange={(e) => handleUpdateRoomStatus(room.hotelId, room.id, e.target.value as any)}
-                                className="bg-luxury-obsidian border border-white/10 text-[11px] text-white px-2 py-1.5 rounded focus:outline-none focus:border-luxury-gold cursor-pointer"
-                              >
-                                <option value="Available">Available</option>
-                                <option value="Booked">Booked</option>
-                                <option value="Maintenance">Maintenance</option>
-                              </select>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {allRooms.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-luxury-silver-muted">No rooms in database. Please seed the database first.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {hotels.map((hotel) => {
+                  const isExpanded = expandedHotelIds.has(hotel.id);
+                  const hotelRooms = hotel.rooms || [];
+                  const available = hotelRooms.filter((r: any) => r.status === 'Available').length;
+                  const booked = hotelRooms.filter((r: any) => r.status === 'Booked').length;
+                  const maintenance = hotelRooms.filter((r: any) => r.status === 'Maintenance').length;
+                  const isAddingRoom = addRoomFor === hotel.id;
+
+                  return (
+                    <div key={hotel.id} className="bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-lg overflow-hidden shadow-lg">
+
+                      {/* Hotel header row — click to expand */}
+                      <button
+                        onClick={() => toggleHotelExpand(hotel.id)}
+                        className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/5 transition-colors duration-200 text-left"
+                      >
+                        <img src={hotel.image} alt={hotel.name} className="w-12 h-12 rounded object-cover shrink-0 border border-white/10" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-white font-serif truncate">{hotel.name}</p>
+                          <p className="text-[11px] text-luxury-silver-muted">{hotel.location}</p>
+                        </div>
+                        {/* Room counts */}
+                        <div className="hidden sm:flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                          <span className="px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{available} Available</span>
+                          <span className="px-2.5 py-1 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">{booked} Booked</span>
+                          {maintenance > 0 && <span className="px-2.5 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20">{maintenance} Maint.</span>}
+                          <span className="px-2.5 py-1 rounded bg-white/5 text-luxury-silver-muted border border-white/10">{hotelRooms.length} Total</span>
+                        </div>
+                        {/* Add Room button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setAddRoomFor(isAddingRoom ? null : hotel.id); setAddRoomError(''); setExpandedHotelIds(prev => { const n = new Set(prev); n.add(hotel.id); return n; }); }}
+                          className="shrink-0 flex items-center gap-1 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 rounded text-[10px] uppercase font-bold tracking-wider transition-colors duration-200"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span className="hidden sm:inline">Add Room</span>
+                        </button>
+                        {/* Expand chevron */}
+                        <svg className={`h-4 w-4 text-luxury-silver-muted transition-transform duration-300 shrink-0 ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+
+                      {/* Expanded: room list + optional add-room form */}
+                      {isExpanded && (
+                        <div className="border-t border-white/5">
+
+                          {/* Inline Add Room form */}
+                          {isAddingRoom && (
+                            <div className="bg-emerald-500/5 border-b border-emerald-500/20 px-5 py-4 space-y-3">
+                              <p className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold">New Room for {hotel.name}</p>
+                              {addRoomError && <p className="text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded">{addRoomError}</p>}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {[
+                                  { label: 'Room Name *', key: 'roomName', placeholder: '', type: 'text' },
+                                  { label: 'Night Price (Rs.) *', key: 'price', placeholder: '', type: 'number' },
+                                  { label: 'Day-Out Price (Rs.)', key: 'dayoutPrice', placeholder: 'Optional', type: 'number' },
+                                  { label: 'Capacity (guests)', key: 'capacity', placeholder: '', type: 'number' },
+                                  { label: 'Total Units (rooms)', key: 'totalUnits', placeholder: '', type: 'number' },
+                                  { label: 'Facilities', key: 'facilities', placeholder: '', type: 'text' },
+                                  { label: 'Image URL *', key: 'image', placeholder: '', type: 'text' },
+                                ].map(f => (
+                                  <div key={f.key} className="space-y-1">
+                                    <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">{f.label}</label>
+                                    <input
+                                      type={f.type}
+                                      value={(newRoomForm as any)[f.key]}
+                                      onChange={e => setNewRoomForm(p => ({ ...p, [f.key]: e.target.value }))}
+                                      placeholder={f.placeholder}
+                                      className="w-full bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold"
+                                    />
+                                  </div>
+                                ))}
+                                <div className="space-y-1">
+                                  <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">Status</label>
+                                  <select
+                                    value={newRoomForm.status}
+                                    onChange={e => setNewRoomForm(p => ({ ...p, status: e.target.value }))}
+                                    className="w-full bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold"
+                                  >
+                                    <option value="Available">Available</option>
+                                    <option value="Booked">Booked</option>
+                                    <option value="Maintenance">Maintenance</option>
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  onClick={() => handleAddRoom(hotel.id)}
+                                  disabled={addRoomLoading}
+                                  className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black rounded text-xs font-bold uppercase tracking-wider disabled:opacity-50 transition-colors duration-200"
+                                >
+                                  {addRoomLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                                  <span>Save Room</span>
+                                </button>
+                                <button onClick={() => setAddRoomFor(null)} className="px-4 py-2 text-xs text-luxury-silver-muted hover:text-white transition-colors duration-200">Cancel</button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Room rows */}
+                          {hotelRooms.length === 0 ? (
+                            <p className="px-5 py-6 text-center text-xs text-luxury-silver-muted">No rooms yet — click Add Room above.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-white/5 text-luxury-silver-muted uppercase tracking-wider text-left">
+                                    <th className="px-5 py-3 font-medium">Room</th>
+                                    <th className="px-3 py-3 font-medium">Capacity</th>
+                                    <th className="px-3 py-3 font-medium">Night Rate</th>
+                                    <th className="px-3 py-3 font-medium">Day-Out</th>
+                                    <th className="px-3 py-3 font-medium">Total Units</th>
+                                    <th className="px-3 py-3 font-medium">Status</th>
+                                    <th className="px-3 py-3 font-medium text-right">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {hotelRooms.map((room: any) => (
+                                    <tr key={room.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
+                                      <td className="px-5 py-3 font-semibold text-white">{room.roomName}</td>
+                                      <td className="px-3 py-3 text-luxury-silver-muted">{room.capacity} guests</td>
+                                      <td className="px-3 py-3 text-luxury-gold font-semibold">Rs. {room.price?.toLocaleString()}</td>
+                                      <td className="px-3 py-3 text-luxury-silver-muted">{room.dayoutPrice ? `Rs. ${room.dayoutPrice?.toLocaleString()}` : '—'}</td>
+                                      <td className="px-3 py-3">
+                                        <RoomUnitsInput
+                                          key={`${room.id}-${room.totalUnits ?? 1}`}
+                                          roomId={room.id}
+                                          savedValue={room.totalUnits ?? 1}
+                                          onSaved={(val) => {
+                                            setHotels(prev => prev.map(h => h.id === hotel.id
+                                              ? { ...h, rooms: h.rooms.map((r: any) => r.id === room.id ? { ...r, totalUnits: val } : r) }
+                                              : h
+                                            ));
+                                          }}
+                                        />
+                                      </td>
+                                      <td className="px-3 py-3">
+                                        <span className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                          room.status === 'Available' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                          : room.status === 'Booked' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                        }`}>{room.status}</span>
+                                      </td>
+                                      <td className="px-3 py-3 text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                          <button
+                                            onClick={() => { const h = hotels.find(x => x.id === hotel.id); if (h) setEditingHotel(h); }}
+                                            title="Edit room in full editor"
+                                            className="p-1.5 hover:bg-luxury-gold/20 rounded border border-white/5 hover:border-luxury-gold/40 text-luxury-gold transition-colors duration-200"
+                                          >
+                                            <Edit3 className="h-3.5 w-3.5" />
+                                          </button>
+                                          {roomStatusUpdating === room.id ? (
+                                            <Loader2 className="h-4 w-4 animate-spin text-luxury-gold" />
+                                          ) : (
+                                            <select
+                                              value={room.status}
+                                              onChange={e => handleUpdateRoomStatus(hotel.id, room.id, e.target.value as any)}
+                                              className="bg-luxury-obsidian border border-white/10 text-[11px] text-white px-2 py-1.5 rounded focus:outline-none focus:border-luxury-gold cursor-pointer"
+                                            >
+                                              <option value="Available">Available</option>
+                                              <option value="Booked">Booked</option>
+                                              <option value="Maintenance">Maintenance</option>
+                                            </select>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {hotels.length === 0 && (
+                  <p className="text-center text-luxury-silver-muted text-xs py-12">No hotels found. Please seed the database.</p>
+                )}
               </div>
             )}
           </div>
@@ -685,9 +955,78 @@ export default function AdminDashboard() {
         {/* Tab 4: Bookings Log */}
         {activeTab === 'bookings' && (
           <div className="bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-lg p-6 shadow-xl space-y-6">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
               <h3 className="text-xl font-serif text-white">Active Stays Log</h3>
-              <span className="text-xs text-luxury-silver-muted">{bookings.length} total reservations</span>
+              <span className="text-xs text-luxury-silver-muted">
+                {filteredBookings.length !== bookings.length
+                  ? `${filteredBookings.length} of ${bookings.length} reservations`
+                  : `${bookings.length} total reservations`}
+              </span>
+            </div>
+
+            {/* ── Filter / Sort Bar ──────────────────────────────────────────── */}
+            <div className="flex flex-wrap gap-3 items-end bg-white/[0.02] border border-white/5 rounded-lg px-4 py-3">
+              {/* Hotel filter */}
+              <div className="flex flex-col gap-1 min-w-[160px] flex-1">
+                <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">Hotel</label>
+                <select
+                  value={bookingFilterHotel}
+                  onChange={e => setBookingFilterHotel(e.target.value)}
+                  className="bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold cursor-pointer"
+                >
+                  <option value="">All Hotels</option>
+                  {hotels.map(h => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date from */}
+              <div className="flex flex-col gap-1 min-w-[140px]">
+                <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">Check-In From</label>
+                <input
+                  type="date"
+                  value={bookingFilterFrom}
+                  onChange={e => setBookingFilterFrom(e.target.value)}
+                  className="bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold"
+                />
+              </div>
+
+              {/* Date to */}
+              <div className="flex flex-col gap-1 min-w-[140px]">
+                <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">Check-In To</label>
+                <input
+                  type="date"
+                  value={bookingFilterTo}
+                  onChange={e => setBookingFilterTo(e.target.value)}
+                  className="bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold"
+                />
+              </div>
+
+              {/* Sort */}
+              <div className="flex flex-col gap-1 min-w-[160px]">
+                <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">Sort By</label>
+                <select
+                  value={bookingSort}
+                  onChange={e => setBookingSort(e.target.value as any)}
+                  className="bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold cursor-pointer"
+                >
+                  <option value="date-desc">Date — Newest First</option>
+                  <option value="date-asc">Date — Oldest First</option>
+                  <option value="hotel-asc">Hotel Name A–Z</option>
+                </select>
+              </div>
+
+              {/* Clear filters */}
+              {(bookingFilterHotel || bookingFilterFrom || bookingFilterTo) && (
+                <button
+                  onClick={() => { setBookingFilterHotel(''); setBookingFilterFrom(''); setBookingFilterTo(''); }}
+                  className="self-end px-3 py-2 text-[10px] uppercase font-bold tracking-wider text-luxury-silver-muted hover:text-white border border-white/10 hover:border-white/20 rounded transition-colors duration-200"
+                >
+                  ✕ Clear
+                </button>
+              )}
             </div>
             
             {bookingsLoading ? (
@@ -701,13 +1040,14 @@ export default function AdminDashboard() {
                       <th className="pb-3 font-medium">Customer Details</th>
                       <th className="pb-3 font-medium">Hotel & Room</th>
                       <th className="pb-3 font-medium">Check-In / Out</th>
+                      <th className="pb-3 font-medium">Type</th>
                       <th className="pb-3 font-medium">Total Rate</th>
                       <th className="pb-3 font-medium">Status</th>
                       <th className="pb-3 font-medium text-right">Update Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {bookings.map((b) => (
+                    {filteredBookings.map((b) => (
                       <tr key={b.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
                         <td className="py-4 font-mono text-luxury-gold font-bold text-[10px]">{b.reservationId || b.id?.slice(0, 8)}</td>
                         <td className="py-4">
@@ -721,6 +1061,15 @@ export default function AdminDashboard() {
                         <td className="py-4 text-luxury-silver-muted">
                           <div>{b.checkIn ? new Date(b.checkIn).toLocaleDateString('en-GB') : '—'}</div>
                           <div className="text-[10px]">to {b.checkOut ? new Date(b.checkOut).toLocaleDateString('en-GB') : '—'}</div>
+                        </td>
+                        <td className="py-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
+                            b.bookingType === 'Day Out'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                          }`}>
+                            {b.bookingType === 'Day Out' ? '☀ Day Out' : '🌙 Night Stay'}
+                          </span>
                         </td>
                         <td className="py-4 font-semibold text-luxury-gold">Rs. {(b.totalAmount || 0).toLocaleString()}</td>
                         <td className="py-4">
@@ -758,10 +1107,12 @@ export default function AdminDashboard() {
                         </td>
                       </tr>
                     ))}
-                    {bookings.length === 0 && (
+                    {filteredBookings.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-luxury-silver-muted">
-                          No reservations found. Customer bookings will appear here automatically.
+                        <td colSpan={8} className="py-8 text-center text-luxury-silver-muted">
+                          {bookings.length === 0
+                            ? 'No reservations found. Customer bookings will appear here automatically.'
+                            : 'No reservations match the current filters.'}
                         </td>
                       </tr>
                     )}

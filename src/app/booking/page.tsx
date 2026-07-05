@@ -12,15 +12,22 @@ import Image from 'next/image';
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 
-/** Strips all non-digit characters, then checks the result is 7–15 digits (ITU-T E.164 range). */
+/** Strips all non-digit characters, then checks the result is exactly 10 digits. */
 function isValidPhone(raw: string): boolean {
   const digits = raw.replace(/\D/g, '');
-  return digits.length >= 7 && digits.length <= 15;
+  return digits.length === 10;
 }
 
 /** Full RFC-5322-like email check — requires a real domain with a dot (e.g. user@gmail.com). */
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+}
+
+/** Normalise facilities to always be a string array regardless of source format. */
+function normalizeFacilities(facilities: string | string[] | undefined | null): string[] {
+  if (!facilities) return [];
+  if (Array.isArray(facilities)) return facilities.filter(Boolean);
+  return facilities.split(',').map(f => f.trim()).filter(Boolean);
 }
 
 function BookingPageContent() {
@@ -48,6 +55,7 @@ function BookingPageContent() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [bookingType, setBookingType] = useState<'Night Stay' | 'Day Out' | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingSuccessData, setBookingSuccessData] = useState<any>(null);
 
@@ -55,7 +63,7 @@ function BookingPageContent() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Inline field errors
-  const [formErrors, setFormErrors] = useState<{ name?: string; phone?: string; email?: string }>({});
+  const [formErrors, setFormErrors] = useState<{ name?: string; phone?: string; email?: string; bookingType?: string }>({});
 
   // Live hotels data from DB
   const [liveHotels, setLiveHotels] = useState<any[]>([]);
@@ -108,12 +116,35 @@ function BookingPageContent() {
       setSelectedHotelId(paramHotel);
       const matchedHotel = liveHotels.find((h: any) => h.id === paramHotel);
       if (matchedHotel && paramRoom) {
-        const matchedRoom = matchedHotel.rooms.find((r: any) => r.id === paramRoom);
-        if (matchedRoom) {
-          setSelectedRoom(matchedRoom);
-          setHasSearched(true);
-          setAvailableRooms(matchedHotel.rooms.filter((r: any) => r.status === 'Available'));
-        }
+        // Fetch availability data so facilities + remainingUnits are correctly populated
+        fetch(`/api/availability?hotelId=${paramHotel}&guests=1&checkIn=${checkIn}&checkOut=${bookingType === 'Day Out' ? checkIn : checkOut}&bookingType=${encodeURIComponent(bookingType)}&t=${Date.now()}`, { cache: 'no-store' })
+          .then(r => r.json())
+          .then(json => {
+            if (json.success) {
+              setAvailableRooms(json.data);
+              const matchedRoom = json.data.find((r: any) => r.id === paramRoom);
+              if (matchedRoom) setSelectedRoom(matchedRoom);
+            } else {
+              // Fallback: use hotel rooms but normalize facilities
+              const rooms = matchedHotel.rooms.map((r: any) => ({
+                ...r,
+                facilities: normalizeFacilities(r.facilities),
+                remainingUnits: r.totalUnits ?? 1,
+                fullyBooked: r.status === 'Booked',
+              }));
+              setAvailableRooms(rooms.filter((r: any) => !r.fullyBooked));
+              const matchedRoom = rooms.find((r: any) => r.id === paramRoom);
+              if (matchedRoom) setSelectedRoom(matchedRoom);
+            }
+          })
+          .catch(() => {
+            const rooms = matchedHotel.rooms.map((r: any) => ({
+              ...r,
+              facilities: normalizeFacilities(r.facilities),
+            }));
+            setAvailableRooms(rooms.filter((r: any) => r.status === 'Available'));
+          });
+        setHasSearched(true);
       }
     }
   }, [paramHotel, paramRoom, liveHotels]);
@@ -125,32 +156,19 @@ function BookingPageContent() {
     setIsSearching(true);
 
     try {
-      // Fetch fresh room data from DB to get live availability
-      const res = await fetch(`/api/hotels?t=${Date.now()}`, { cache: 'no-store' });
+      // Use the availability API which returns all rooms with remaining unit counts
+      const res = await fetch(
+        `/api/availability?hotelId=${selectedHotelId}&guests=${guests}&checkIn=${checkIn}&checkOut=${bookingType === 'Day Out' ? checkIn : checkOut}&bookingType=${encodeURIComponent(bookingType)}&t=${Date.now()}`,
+        { cache: 'no-store' }
+      );
       const json = await res.json();
       if (res.ok && json.success) {
-        setLiveHotels(json.data);
-        const matchedHotel = json.data.find((h: any) => h.id === selectedHotelId);
-        if (matchedHotel) {
-          const rooms = matchedHotel.rooms.filter(
-            (r: any) => r.status === 'Available' && r.capacity >= parseInt(guests)
-          );
-          setAvailableRooms(rooms);
-        } else {
-          setAvailableRooms([]);
-        }
-      }
-    } catch (e) {
-      // Fallback to local state
-      const matchedHotel = liveHotels.find((h: any) => h.id === selectedHotelId);
-      if (matchedHotel) {
-        const rooms = matchedHotel.rooms.filter(
-          (r: any) => r.status === 'Available' && r.capacity >= parseInt(guests)
-        );
-        setAvailableRooms(rooms);
+        setAvailableRooms(json.data);
       } else {
         setAvailableRooms([]);
       }
+    } catch (e) {
+      setAvailableRooms([]);
     }
 
     setIsSearching(false);
@@ -169,17 +187,19 @@ function BookingPageContent() {
     e.preventDefault();
     if (!selectedHotelId || !selectedRoom) return;
 
-    // ── Client-side validation ──────────────────────────────────────────────
-    const errors: { name?: string; phone?: string; email?: string } = {};
+    const errors: { name?: string; phone?: string; email?: string; bookingType?: string } = {};
 
     if (!customerName.trim() || customerName.trim().length < 2) {
       errors.name = 'Please enter your full name (at least 2 characters).';
     }
     if (!isValidPhone(customerPhone)) {
-      errors.phone = 'Please enter a valid phone number (7–15 digits, e.g. +94 77 123 4567).';
+      errors.phone = 'Please enter a valid 10-digit phone number (e.g. 0771234567).';
     }
     if (!isValidEmail(customerEmail)) {
       errors.email = 'Please enter a valid email address (e.g. yourname@gmail.com).';
+    }
+    if (!bookingType) {
+      errors.bookingType = 'Please select Night Stay or Day Out.';
     }
 
     if (Object.keys(errors).length > 0) {
@@ -188,7 +208,7 @@ function BookingPageContent() {
     }
 
     setFormErrors({});
-    setShowConfirmModal(true); // show summary before submitting
+    setShowConfirmModal(true);
   };
 
   const handleConfirmedSubmit = async () => {
@@ -197,6 +217,12 @@ function BookingPageContent() {
     setShowConfirmModal(false);
     setIsSubmitting(true);
 
+    // Day Out = flat rate (1 day), Night Stay = price × nights
+    const unitPrice = bookingType === 'Day Out' && selectedRoom.dayoutPrice
+      ? selectedRoom.dayoutPrice
+      : selectedRoom.price;
+    const totalPrice = bookingType === 'Day Out' ? unitPrice : unitPrice * getDaysCount();
+
     const bookingPayload = {
       customerName,
       phone: customerPhone,
@@ -204,9 +230,10 @@ function BookingPageContent() {
       hotelId: selectedHotelId,
       roomId: selectedRoom.id,
       checkIn,
-      checkOut,
+      checkOut: bookingType === 'Day Out' ? checkIn : checkOut, // same day for Day Out
       guests: parseInt(guests),
-      totalPrice: selectedRoom.price * getDaysCount()
+      bookingType,
+      totalPrice,
     };
 
     try {
@@ -237,6 +264,12 @@ function BookingPageContent() {
     const diffTime = Math.abs(date2.getTime() - date1.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays || 1;
+  };
+
+  // Returns the per-unit price based on selected booking type
+  const getUnitPrice = (room: any) => {
+    if (bookingType === 'Day Out' && room?.dayoutPrice) return room.dayoutPrice;
+    return room?.price ?? 0;
   };
 
   const selectedHotel = liveHotels.find(h => h.id === selectedHotelId);
@@ -291,12 +324,21 @@ function BookingPageContent() {
                 <div>
                   <span className="text-luxury-silver-muted block">{t('datesLabel')}</span>
                   <span className="text-white font-semibold">
-                    {bookingSuccessData.checkIn?.split('T')[0] || bookingSuccessData.checkIn} to {bookingSuccessData.checkOut?.split('T')[0] || bookingSuccessData.checkOut}
+                    {bookingSuccessData.bookingType === 'Day Out'
+                      ? `${bookingSuccessData.checkIn?.split('T')[0] || bookingSuccessData.checkIn} · 11:00 AM – 5:00 PM`
+                      : `${bookingSuccessData.checkIn?.split('T')[0] || bookingSuccessData.checkIn} to ${bookingSuccessData.checkOut?.split('T')[0] || bookingSuccessData.checkOut}`
+                    }
                   </span>
                 </div>
                 <div>
                   <span className="text-luxury-silver-muted block">Guests Number</span>
                   <span className="text-white font-semibold">{bookingSuccessData.guests} Adults</span>
+                </div>
+                <div>
+                  <span className="text-luxury-silver-muted block">Booking Type</span>
+                  <span className={`font-semibold ${bookingSuccessData.bookingType === 'Day Out' ? 'text-amber-400' : 'text-blue-400'}`}>
+                    {bookingSuccessData.bookingType === 'Day Out' ? '☀️ Day Out' : '🌙 Night Stay'}
+                  </span>
                 </div>
               </div>
 
@@ -334,6 +376,7 @@ function BookingPageContent() {
 
             {/* Step 1: Availability Search Form */}
             <form onSubmit={handleSearch} className="bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-xl p-4 md:p-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 md:gap-6 items-end shadow-2xl">
+              {/* Hotel */}
               <div className="sm:col-span-2 md:col-span-1">
                 <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
                   {t('selectHotel')}
@@ -358,32 +401,65 @@ function BookingPageContent() {
                 )}
               </div>
 
+              {/* Booking Type — here so date fields react immediately */}
               <div>
                 <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
-                  {t('checkIn')}
+                  {t('bookingTypeLabel')}
+                </label>
+                <select
+                  value={bookingType}
+                  onChange={(e) => {
+                    const val = e.target.value as 'Night Stay' | 'Day Out' | '';
+                    setBookingType(val);
+                    setFormErrors(p => ({ ...p, bookingType: undefined }));
+                    if (val === 'Day Out') setCheckOut(checkIn);
+                  }}
+                  required
+                  className={`w-full bg-luxury-obsidian border rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 ${formErrors.bookingType ? 'border-red-500' : 'border-white/10'}`}
+                >
+                  <option value="">-- {t('bookingTypeLabel')} --</option>
+                  <option value="Night Stay">🌙 {t('nightStay')}</option>
+                  <option value="Day Out">☀️ {t('dayOut')}</option>
+                </select>
+              </div>
+
+              {/* Check-In */}
+              <div>
+                <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
+                  {bookingType === 'Day Out' ? t('visitDate') : t('checkIn')}
                 </label>
                 <input
                   type="date"
                   value={checkIn}
-                  onChange={(e) => setCheckIn(e.target.value)}
+                  onChange={(e) => {
+                    setCheckIn(e.target.value);
+                    if (bookingType === 'Day Out') setCheckOut(e.target.value);
+                  }}
                   required
                   className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 [color-scheme:dark]"
                 />
+                {bookingType === 'Day Out' && (
+                  <p className="text-[10px] text-amber-400 mt-1">☀ {t('dayOutTimeSlot')}</p>
+                )}
               </div>
 
-              <div>
-                <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
-                  {t('checkOut')}
-                </label>
-                <input
-                  type="date"
-                  value={checkOut}
-                  onChange={(e) => setCheckOut(e.target.value)}
-                  required
-                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 [color-scheme:dark]"
-                />
-              </div>
+              {/* Check-Out — hidden for Day Out */}
+              {bookingType !== 'Day Out' && (
+                <div>
+                  <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
+                    {t('checkOut')}
+                  </label>
+                  <input
+                    type="date"
+                    value={checkOut}
+                    onChange={(e) => setCheckOut(e.target.value)}
+                    required
+                    className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 [color-scheme:dark]"
+                  />
+                </div>
+              )}
 
+              {/* Guests */}
               <div>
                 <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
                   {t('guestsCount') || 'Guests'}
@@ -399,11 +475,12 @@ function BookingPageContent() {
                 </select>
               </div>
 
-              <div className="sm:col-span-2 md:col-span-1">
+              {/* Search button — full width on Day Out (checkout col is gone) */}
+              <div className={bookingType === 'Day Out' ? 'sm:col-span-2 md:col-span-1' : 'sm:col-span-2 md:col-span-1'}>
                 <button
                   type="submit"
-                  disabled={isSearching}
-                  className="w-full py-4 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded font-sans font-bold tracking-widest text-sm uppercase transition-all duration-300 flex items-center justify-center space-x-2 shadow-lg shadow-luxury-gold/10 min-h-[50px]"
+                  disabled={isSearching || !bookingType}
+                  className="w-full py-4 bg-luxury-gold hover:bg-luxury-gold-dark disabled:opacity-50 disabled:cursor-not-allowed text-black rounded font-sans font-bold tracking-widest text-sm uppercase transition-all duration-300 flex items-center justify-center space-x-2 shadow-lg shadow-luxury-gold/10 min-h-[50px]"
                 >
                   {isSearching ? (
                     <>
@@ -421,7 +498,7 @@ function BookingPageContent() {
             {hasSearched && (
               <div className="space-y-6">
                 <h2 className="text-xl md:text-2xl font-serif text-white border-b border-white/5 pb-2">
-                  {t('availableRooms')} ({availableRooms.length})
+                  {t('availableRooms')} ({availableRooms.filter((r: any) => !r.fullyBooked).length})
                 </h2>
 
                 {availableRooms.length === 0 ? (
@@ -431,13 +508,18 @@ function BookingPageContent() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {availableRooms.map((room) => {
+                    {availableRooms.map((room: any) => {
                       const isSelected = selectedRoom?.id === room.id;
+                      const isFullyBooked = room.fullyBooked === true;
                       return (
                         <div
                           key={room.id}
                           className={`bg-luxury-obsidian-card border rounded-lg overflow-hidden flex flex-col justify-between group transition-all duration-300 ${
-                            isSelected ? 'border-luxury-gold ring-1 ring-luxury-gold' : 'border-white/5'
+                            isFullyBooked
+                              ? 'border-white/5 opacity-70'
+                              : isSelected
+                                ? 'border-luxury-gold ring-1 ring-luxury-gold'
+                                : 'border-white/5'
                           }`}
                         >
                           <div className="relative h-48 overflow-hidden">
@@ -447,18 +529,50 @@ function BookingPageContent() {
                               fill
                               className="object-cover object-center group-hover:scale-105 transition-transform duration-500"
                             />
+                            {/* Fully Booked overlay badge */}
+                            {isFullyBooked && (
+                              <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                                <span className="px-4 py-2 bg-red-500/90 text-white text-xs font-bold uppercase tracking-widest rounded">
+                                  Fully Booked
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           <div className="p-5 flex-grow space-y-4 flex flex-col justify-between">
                             <div className="space-y-2">
-                              <h3 className="text-lg font-serif text-white">{room.roomName || room.name}</h3>
+                              <div className="flex items-start justify-between gap-2">
+                                <h3 className="text-lg font-serif text-white">{room.roomName || room.name}</h3>
+                                {isFullyBooked && (
+                                  <span className="shrink-0 text-[9px] bg-red-500/15 text-red-400 border border-red-500/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                                    Fully Booked
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex flex-wrap gap-1">
-                                {(room.facilities || '').toString().split(',').filter(Boolean).map((fac: string) => (
+                                {normalizeFacilities(room.facilities).map((fac: string) => (
                                   <span key={fac} className="text-[9px] bg-white/5 text-luxury-silver px-2 py-0.5 rounded">
                                     {fac.trim()}
                                   </span>
                                 ))}
                               </div>
+                              {/* Availability label */}
+                              {!isFullyBooked && room.remainingUnits != null && (
+                                room.remainingUnits === 1 ? (
+                                  <p className="text-[10px] font-bold text-amber-400 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse inline-block" />
+                                    Only 1 room left!
+                                  </p>
+                                ) : room.remainingUnits <= 3 ? (
+                                  <p className="text-[10px] text-amber-400">
+                                    Only {room.remainingUnits} rooms left
+                                  </p>
+                                ) : room.totalUnits > 1 ? (
+                                  <p className="text-[10px] text-emerald-400">
+                                    {room.remainingUnits} rooms available
+                                  </p>
+                                ) : null
+                              )}
                             </div>
 
                             <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
@@ -471,14 +585,17 @@ function BookingPageContent() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() => handleSelectRoom(room)}
+                                onClick={() => !isFullyBooked && handleSelectRoom(room)}
+                                disabled={isFullyBooked}
                                 className={`w-full sm:w-auto px-4 py-3 text-sm font-sans tracking-widest uppercase font-bold rounded transition-all duration-300 min-h-[44px] ${
-                                  isSelected
-                                    ? 'bg-emerald-500 text-white'
-                                    : 'bg-white/5 hover:bg-luxury-gold hover:text-black text-white'
+                                  isFullyBooked
+                                    ? 'bg-white/5 text-luxury-silver-muted cursor-not-allowed'
+                                    : isSelected
+                                      ? 'bg-emerald-500 text-white'
+                                      : 'bg-white/5 hover:bg-luxury-gold hover:text-black text-white'
                                 }`}
                               >
-                                {isSelected ? 'Selected ✓' : 'Select Room'}
+                                {isFullyBooked ? 'Unavailable' : isSelected ? 'Selected ✓' : 'Select Room'}
                               </button>
                             </div>
                           </div>
@@ -562,7 +679,8 @@ function BookingPageContent() {
                           value={customerPhone}
                           onChange={(e) => { setCustomerPhone(e.target.value); setFormErrors(p => ({ ...p, phone: undefined })); }}
                           required
-                          placeholder="e.g. +94 77 123 4567"
+                          maxLength={10}
+                          placeholder="e.g. 0771234567"
                           className={`w-full bg-luxury-obsidian border rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 ${formErrors.phone ? 'border-red-500' : 'border-white/10'}`}
                         />
                       </div>
@@ -574,19 +692,56 @@ function BookingPageContent() {
                     </div>
                   </div>
 
+                  {/* Booking Type — already selected in search form, shown as read-only reminder */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block">
+                      {t('bookingTypeLabel')}
+                    </label>
+                    <div className={`w-full border rounded px-4 py-3 text-xs font-semibold flex items-center gap-2 ${
+                      bookingType === 'Day Out'
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                        : 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                    }`}>
+                      {bookingType === 'Day Out' ? `☀️ ${t('dayOut')} — ${t('dayOutTimeSlot')}` : `🌙 ${t('nightStay')}`}
+                    </div>
+                  </div>
+
                   <div className="bg-black/40 p-4 rounded border border-white/5 space-y-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-luxury-silver-muted">Suite Base Rate</span>
-                      <span className="text-white font-medium">{formatPrice(selectedRoom.price)} / night</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-luxury-silver-muted">Total Nights</span>
-                      <span className="text-white font-medium">{getDaysCount()} nights</span>
-                    </div>
-                    <div className="flex justify-between border-t border-white/5 pt-2 font-bold">
-                      <span className="text-luxury-gold uppercase tracking-wider">Total Investment</span>
-                      <span className="text-luxury-gold font-serif">{formatPrice(selectedRoom.price * getDaysCount())}</span>
-                    </div>
+                    {bookingType === 'Day Out' ? (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-luxury-silver-muted">{t('dayOut')} Rate</span>
+                          <span className="text-white font-medium">{formatPrice(getUnitPrice(selectedRoom))}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-luxury-silver-muted">{t('timeSlot')}</span>
+                          <span className="text-amber-400 font-medium">{t('dayOutTimeSlot')}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-luxury-silver-muted">{t('visitDate')}</span>
+                          <span className="text-white font-medium">{checkIn}</span>
+                        </div>
+                        <div className="flex justify-between border-t border-white/5 pt-2 font-bold">
+                          <span className="text-luxury-gold uppercase tracking-wider">{t('totalLabel')}</span>
+                          <span className="text-luxury-gold font-serif">{formatPrice(getUnitPrice(selectedRoom))}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-luxury-silver-muted">Suite Base Rate</span>
+                          <span className="text-white font-medium">{formatPrice(getUnitPrice(selectedRoom))} / night</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-luxury-silver-muted">Total Nights</span>
+                          <span className="text-white font-medium">{getDaysCount()} nights</span>
+                        </div>
+                        <div className="flex justify-between border-t border-white/5 pt-2 font-bold">
+                          <span className="text-luxury-gold uppercase tracking-wider">{t('totalLabel')}</span>
+                          <span className="text-luxury-gold font-serif">{formatPrice(getUnitPrice(selectedRoom) * getDaysCount())}</span>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <button
@@ -664,13 +819,26 @@ function BookingPageContent() {
                   <span className="text-luxury-silver-muted">Check-In</span>
                   <span className="text-white font-medium">{checkIn}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-luxury-silver-muted">Check-Out</span>
-                  <span className="text-white font-medium">{checkOut}</span>
-                </div>
+                {bookingType === 'Day Out' ? (
+                  <div className="flex justify-between">
+                    <span className="text-luxury-silver-muted">Time Slot</span>
+                    <span className="text-amber-400 font-medium">11:00 AM – 5:00 PM</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between">
+                    <span className="text-luxury-silver-muted">Check-Out</span>
+                    <span className="text-white font-medium">{checkOut}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-luxury-silver-muted">Guests</span>
                   <span className="text-white font-medium">{guests}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Booking Type</span>
+                  <span className={`font-semibold ${bookingType === 'Day Out' ? 'text-amber-400' : 'text-blue-400'}`}>
+                    {bookingType === 'Day Out' ? '☀️ Day Out' : '🌙 Night Stay'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -678,7 +846,9 @@ function BookingPageContent() {
             {/* Total */}
             <div className="px-6 py-4 flex justify-between items-center border-b border-white/5">
               <span className="text-xs text-luxury-silver-muted uppercase tracking-wider">Total Amount</span>
-              <span className="text-xl font-serif text-luxury-gold font-bold">{formatPrice(selectedRoom.price * getDaysCount())}</span>
+              <span className="text-xl font-serif text-luxury-gold font-bold">
+                {formatPrice(bookingType === 'Day Out' ? getUnitPrice(selectedRoom) : getUnitPrice(selectedRoom) * getDaysCount())}
+              </span>
             </div>
 
             {/* Action buttons */}

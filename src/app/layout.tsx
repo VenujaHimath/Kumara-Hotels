@@ -36,6 +36,24 @@ export const metadata: Metadata = {
       follow: true,
     },
   },
+  // Mobile viewport — prevents iOS auto-zoom and ensures correct scaling
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 5,
+    userScalable: true,
+  },
+  // iOS PWA / home-screen meta
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Kumara Hotels",
+  },
+  // Theme color for Android Chrome address bar
+  themeColor: "#09090b",
+  formatDetection: {
+    telephone: false, // we use explicit tel: links; avoid iOS auto-linking random numbers
+  },
 };
 
 export default function RootLayout({

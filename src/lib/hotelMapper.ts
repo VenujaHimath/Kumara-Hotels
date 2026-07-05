@@ -8,6 +8,7 @@ export function mapDbRoomToDisplay(room: any) {
     image: room.image,
     facilities: room.facilities ? room.facilities.split(',').map((f: string) => f.trim()).filter(Boolean) : [],
     status: room.status as 'Available' | 'Booked' | 'Maintenance',
+    totalUnits: room.totalUnits ?? 1,
   };
 }
 

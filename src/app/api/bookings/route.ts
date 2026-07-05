@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { customerName, phone, email, hotelId, roomId, checkIn, checkOut, guests, totalPrice } = body;
+    const { customerName, phone, email, hotelId, roomId, checkIn, checkOut, guests, totalPrice, bookingType } = body;
 
     if (!customerName || !phone || !email || !hotelId || !roomId || !checkIn || !checkOut || !guests) {
       return NextResponse.json(
@@ -15,11 +15,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Phone validation — strip non-digits, must be 7–15 digits
-    const phoneDigits = phone.replace(/\D/g, '');
-    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+    // bookingType validation
+    const validBookingTypes = ['Night Stay', 'Day Out'];
+    const resolvedBookingType = bookingType && validBookingTypes.includes(bookingType) ? bookingType : null;
+    if (!resolvedBookingType) {
       return NextResponse.json(
-        { success: false, error: 'Phone number must contain between 7 and 15 digits.' },
+        { success: false, error: 'Please select a booking type: Night Stay or Day Out.' },
+        { status: 400 }
+      );
+    }
+
+    // Phone validation — exactly 10 digits
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length !== 10) {
+      return NextResponse.json(
+        { success: false, error: 'Phone number must be exactly 10 digits (e.g. 0771234567).' },
         { status: 400 }
       );
     }
@@ -34,13 +44,16 @@ export async function POST(request: Request) {
 
     // Date validation
     const checkInDate = new Date(checkIn);
-    const checkOutDate = new Date(checkOut);
+    // For Day Out: ignore any client-sent checkOut — always set to checkIn + 6 hours (11am→5pm window)
+    const checkOutDate = resolvedBookingType === 'Day Out'
+      ? new Date(new Date(checkIn).setHours(new Date(checkIn).getHours() + 6))
+      : new Date(checkOut);
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // compare date only, not time
+    today.setHours(0, 0, 0, 0);
 
-    if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
+    if (isNaN(checkInDate.getTime())) {
       return NextResponse.json(
-        { success: false, error: 'Invalid check-in or check-out date format.' },
+        { success: false, error: 'Invalid check-in date format.' },
         { status: 400 }
       );
     }
@@ -52,11 +65,20 @@ export async function POST(request: Request) {
       );
     }
 
-    if (checkOutDate <= checkInDate) {
-      return NextResponse.json(
-        { success: false, error: 'Check-out date must be after check-in date.' },
-        { status: 400 }
-      );
+    // Only validate check-out for Night Stay
+    if (resolvedBookingType === 'Night Stay') {
+      if (isNaN(checkOutDate.getTime())) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid check-out date format.' },
+          { status: 400 }
+        );
+      }
+      if (checkOutDate <= checkInDate) {
+        return NextResponse.json(
+          { success: false, error: 'Check-out date must be after check-in date.' },
+          { status: 400 }
+        );
+      }
     }
 
     // Generate a unique reservationId in standard format (e.g. RES-123456)
@@ -74,20 +96,33 @@ export async function POST(request: Request) {
         checkIn: checkInDate,
         checkOut: checkOutDate,
         guests,
-        status: 'Confirmed', // Default confirmed for direct bookings
+        status: 'Confirmed',
+        bookingType: resolvedBookingType,
         totalAmount: parseFloat(totalPrice) || 0
       },
-      include: {
-        hotel: true,
-        room: true
-      }
+      include: { hotel: true, room: true }
     });
 
-    // Automatically toggle room status to Booked
-    await prisma.room.update({
-      where: { id: roomId },
-      data: { status: 'Booked' }
+    // Only mark room as Booked if all units are now taken by active/future bookings
+    const now = new Date();
+    const confirmedCount = await prisma.booking.count({
+      where: {
+        roomId,
+        status: 'Confirmed',
+        checkOut: { gt: now }, // only future/ongoing bookings
+      },
     });
+
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    const totalUnits = room?.totalUnits ?? 1;
+
+    if (confirmedCount >= totalUnits) {
+      await prisma.room.update({
+        where: { id: roomId },
+        data: { status: 'Booked' },
+      });
+    }
+    // If there are still free units, leave status as Available
 
     return NextResponse.json({
       success: true,
@@ -103,6 +138,7 @@ export async function POST(request: Request) {
         checkIn: newBooking.checkIn.toISOString().split('T')[0],
         checkOut: newBooking.checkOut.toISOString().split('T')[0],
         guests: newBooking.guests,
+        bookingType: newBooking.bookingType,
         totalPrice: newBooking.totalAmount
       }
     }, { status: 201 });
@@ -156,6 +192,36 @@ export async function PATCH(request: Request) {
         room: true
       }
     });
+
+    // Re-evaluate room status after a booking status change
+    const roomData = await prisma.room.findUnique({ where: { id: updatedBooking.roomId } });
+    const totalUnits = roomData?.totalUnits ?? 1;
+
+    if (status === 'Cancelled') {
+      // Count remaining confirmed bookings for this room
+      const confirmedCount = await prisma.booking.count({
+        where: { roomId: updatedBooking.roomId, status: 'Confirmed' },
+      });
+      // If still below capacity (or at 0), restore to Available
+      // Note: only update if room isn't under Maintenance
+      if (roomData?.status !== 'Maintenance' && confirmedCount < totalUnits) {
+        await prisma.room.update({
+          where: { id: updatedBooking.roomId },
+          data: { status: 'Available' },
+        });
+      }
+    } else if (status === 'Confirmed') {
+      // If re-confirming, check if we've now hit full capacity
+      const confirmedCount = await prisma.booking.count({
+        where: { roomId: updatedBooking.roomId, status: 'Confirmed' },
+      });
+      if (roomData?.status !== 'Maintenance' && confirmedCount >= totalUnits) {
+        await prisma.room.update({
+          where: { id: updatedBooking.roomId },
+          data: { status: 'Booked' },
+        });
+      }
+    }
 
     return NextResponse.json({
       success: true,

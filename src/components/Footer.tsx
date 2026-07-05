@@ -9,8 +9,8 @@ export default function Footer() {
   const { t } = useLanguage();
 
   return (
-    <footer className="bg-luxury-obsidian-deep border-t border-luxury-obsidian-border text-luxury-silver-muted pt-16 pb-8">
-      <div className="max-w-7xl mx-auto px-6 md:px-12 grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+    <footer className="bg-luxury-obsidian-deep border-t border-luxury-obsidian-border text-luxury-silver-muted pt-10 md:pt-16 pb-8">
+      <div className="max-w-7xl mx-auto px-6 md:px-12 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 md:gap-12 mb-8 md:mb-12">
         {/* Brand Info */}
         <div className="space-y-4">
           <div className="flex items-center space-x-2">
@@ -21,10 +21,10 @@ export default function Footer() {
           <p className="text-xs leading-relaxed text-luxury-silver-muted/80">
             A prestigious collection of four distinct sanctuaries across Sri Lanka, curated to offer unmatched luxury, local authenticity, and modern comforts.
           </p>
-          <div className="flex space-x-4 pt-2">
-            <a href="#" className="hover:text-luxury-gold transition-colors duration-300"><Instagram className="h-4.5 w-4.5" /></a>
-            <a href="#" className="hover:text-luxury-gold transition-colors duration-300"><Facebook className="h-4.5 w-4.5" /></a>
-            <a href="#" className="hover:text-luxury-gold transition-colors duration-300"><Twitter className="h-4.5 w-4.5" /></a>
+          <div className="flex space-x-2 pt-2">
+            <a href="#" className="hover:text-luxury-gold transition-colors duration-300 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center" aria-label="Instagram"><Instagram className="h-5 w-5" /></a>
+            <a href="#" className="hover:text-luxury-gold transition-colors duration-300 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center" aria-label="Facebook"><Facebook className="h-5 w-5" /></a>
+            <a href="#" className="hover:text-luxury-gold transition-colors duration-300 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center" aria-label="Twitter"><Twitter className="h-5 w-5" /></a>
           </div>
         </div>
 
@@ -77,11 +77,21 @@ export default function Footer() {
             </li>
             <li className="flex items-center space-x-2">
               <Phone className="h-4 w-4 text-luxury-gold/80 flex-shrink-0" />
-              <span>{process.env.NEXT_PUBLIC_CONTACT_PHONE || '+94 11 234 5678'}</span>
+              <a
+                href={`tel:${(process.env.NEXT_PUBLIC_CONTACT_PHONE || '+94112345678').replace(/\s/g, '')}`}
+                className="hover:text-luxury-gold transition-colors duration-300"
+              >
+                {process.env.NEXT_PUBLIC_CONTACT_PHONE || '+94 11 234 5678'}
+              </a>
             </li>
             <li className="flex items-center space-x-2">
               <Mail className="h-4 w-4 text-luxury-gold/80 flex-shrink-0" />
-              <span>{process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'concierge@kumarahotels.com'}</span>
+              <a
+                href={`mailto:${process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'concierge@kumarahotels.com'}`}
+                className="hover:text-luxury-gold transition-colors duration-300 break-all"
+              >
+                {process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'concierge@kumarahotels.com'}
+              </a>
             </li>
           </ul>
         </div>
