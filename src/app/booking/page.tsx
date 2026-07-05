@@ -7,8 +7,21 @@ import { hotels } from '@/data/hotelsData';
 import { RoomPriceDisplay } from '@/components/RoomPriceDisplay';
 import { formatPrice } from '@/lib/formatPrice';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Phone, Mail, CheckCircle, Loader2 } from 'lucide-react';
+import { User, Phone, Mail, CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
 import Image from 'next/image';
+
+// ── Validation helpers ────────────────────────────────────────────────────────
+
+/** Strips all non-digit characters, then checks the result is 7–15 digits (ITU-T E.164 range). */
+function isValidPhone(raw: string): boolean {
+  const digits = raw.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+}
+
+/** Full RFC-5322-like email check — requires a real domain with a dot (e.g. user@gmail.com). */
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+}
 
 function BookingPageContent() {
   const { t } = useLanguage();
@@ -37,6 +50,12 @@ function BookingPageContent() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingSuccessData, setBookingSuccessData] = useState<any>(null);
+
+  // Confirmation modal — shown before actually submitting
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Inline field errors
+  const [formErrors, setFormErrors] = useState<{ name?: string; phone?: string; email?: string }>({});
 
   // Live hotels data from DB
   const [liveHotels, setLiveHotels] = useState<any[]>([]);
@@ -146,10 +165,36 @@ function BookingPageContent() {
     }, 100);
   };
 
-  const handleBookingSubmit = async (e: React.FormEvent) => {
+  const handleBookingSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedHotelId || !selectedRoom) return;
 
+    // ── Client-side validation ──────────────────────────────────────────────
+    const errors: { name?: string; phone?: string; email?: string } = {};
+
+    if (!customerName.trim() || customerName.trim().length < 2) {
+      errors.name = 'Please enter your full name (at least 2 characters).';
+    }
+    if (!isValidPhone(customerPhone)) {
+      errors.phone = 'Please enter a valid phone number (7–15 digits, e.g. +94 77 123 4567).';
+    }
+    if (!isValidEmail(customerEmail)) {
+      errors.email = 'Please enter a valid email address (e.g. yourname@gmail.com).';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
+    setFormErrors({});
+    setShowConfirmModal(true); // show summary before submitting
+  };
+
+  const handleConfirmedSubmit = async () => {
+    if (!selectedHotelId || !selectedRoom) return;
+
+    setShowConfirmModal(false);
     setIsSubmitting(true);
 
     const bookingPayload = {
@@ -197,7 +242,7 @@ function BookingPageContent() {
   const selectedHotel = liveHotels.find(h => h.id === selectedHotelId);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 md:px-12 py-12 relative z-10">
+    <div className="max-w-7xl mx-auto px-4 md:px-12 py-8 md:py-12 relative z-10 pb-28 md:pb-12">
       
       {/* 1. BOOKING SUCCESS STEP */}
       <AnimatePresence mode="wait">
@@ -288,22 +333,22 @@ function BookingPageContent() {
             </div>
 
             {/* Step 1: Availability Search Form */}
-            <form onSubmit={handleSearch} className="bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-xl p-6 md:p-8 grid grid-cols-1 md:grid-cols-5 gap-6 items-end shadow-2xl">
-              <div>
+            <form onSubmit={handleSearch} className="bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-xl p-4 md:p-8 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 md:gap-6 items-end shadow-2xl">
+              <div className="sm:col-span-2 md:col-span-1">
                 <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
                   {t('selectHotel')}
                 </label>
                 {hotelsLoading ? (
-                  <div className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3 flex items-center gap-2">
+                  <div className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 flex items-center gap-2">
                     <Loader2 className="h-3 w-3 animate-spin text-luxury-gold" />
-                    <span className="text-xs text-luxury-silver-muted">Loading...</span>
+                    <span className="text-sm text-luxury-silver-muted">Loading...</span>
                   </div>
                 ) : (
                   <select
                     value={selectedHotelId}
                     onChange={(e) => setSelectedHotelId(e.target.value)}
                     required
-                    className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                    className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
                   >
                     <option value="">-- Select Destination --</option>
                     {liveHotels.map((h) => (
@@ -322,7 +367,7 @@ function BookingPageContent() {
                   value={checkIn}
                   onChange={(e) => setCheckIn(e.target.value)}
                   required
-                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 [color-scheme:dark]"
                 />
               </div>
 
@@ -335,18 +380,18 @@ function BookingPageContent() {
                   value={checkOut}
                   onChange={(e) => setCheckOut(e.target.value)}
                   required
-                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 [color-scheme:dark]"
                 />
               </div>
 
               <div>
                 <label className="text-[10px] font-sans tracking-widest uppercase text-luxury-gold font-semibold block mb-2">
-                  {t('guests') || 'Guests'}
+                  {t('guestsCount') || 'Guests'}
                 </label>
                 <select
                   value={guests}
                   onChange={(e) => setGuests(e.target.value)}
-                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                  className="w-full bg-luxury-obsidian border border-white/10 rounded px-4 py-3.5 text-sm text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
                 >
                   {[1, 2, 3, 4, 5, 6].map((n) => (
                     <option key={n} value={n}>{n} {n === 1 ? 'Guest' : 'Guests'}</option>
@@ -354,11 +399,11 @@ function BookingPageContent() {
                 </select>
               </div>
 
-              <div>
+              <div className="sm:col-span-2 md:col-span-1">
                 <button
                   type="submit"
                   disabled={isSearching}
-                  className="w-full py-3 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded font-sans font-bold tracking-widest text-xs uppercase transition-all duration-300 flex items-center justify-center space-x-2 shadow-lg shadow-luxury-gold/10"
+                  className="w-full py-4 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded font-sans font-bold tracking-widest text-sm uppercase transition-all duration-300 flex items-center justify-center space-x-2 shadow-lg shadow-luxury-gold/10 min-h-[50px]"
                 >
                   {isSearching ? (
                     <>
@@ -416,7 +461,7 @@ function BookingPageContent() {
                               </div>
                             </div>
 
-                            <div className="pt-3 border-t border-white/5 flex items-end justify-between gap-3">
+                            <div className="pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                               <div>
                                 <span className="text-xs text-luxury-silver-muted">From</span>
                                 <p className="text-lg font-serif text-luxury-gold font-bold">
@@ -427,13 +472,13 @@ function BookingPageContent() {
                               <button
                                 type="button"
                                 onClick={() => handleSelectRoom(room)}
-                                className={`px-4 py-2 text-xs font-sans tracking-widest uppercase font-bold rounded transition-all duration-300 ${
+                                className={`w-full sm:w-auto px-4 py-3 text-sm font-sans tracking-widest uppercase font-bold rounded transition-all duration-300 min-h-[44px] ${
                                   isSelected
                                     ? 'bg-emerald-500 text-white'
                                     : 'bg-white/5 hover:bg-luxury-gold hover:text-black text-white'
                                 }`}
                               >
-                                {isSelected ? 'Selected ✓' : 'Select'}
+                                {isSelected ? 'Selected ✓' : 'Select Room'}
                               </button>
                             </div>
                           </div>
@@ -470,12 +515,17 @@ function BookingPageContent() {
                       <input
                         type="text"
                         value={customerName}
-                        onChange={(e) => setCustomerName(e.target.value)}
+                        onChange={(e) => { setCustomerName(e.target.value); setFormErrors(p => ({ ...p, name: undefined })); }}
                         required
                         placeholder="e.g. John Doe"
-                        className="w-full bg-luxury-obsidian border border-white/10 rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                        className={`w-full bg-luxury-obsidian border rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 ${formErrors.name ? 'border-red-500' : 'border-white/10'}`}
                       />
                     </div>
+                    {formErrors.name && (
+                      <p className="flex items-center gap-1 text-[10px] text-red-400 mt-1">
+                        <AlertTriangle className="h-3 w-3 shrink-0" />{formErrors.name}
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -488,12 +538,17 @@ function BookingPageContent() {
                         <input
                           type="email"
                           value={customerEmail}
-                          onChange={(e) => setCustomerEmail(e.target.value)}
+                          onChange={(e) => { setCustomerEmail(e.target.value); setFormErrors(p => ({ ...p, email: undefined })); }}
                           required
-                          placeholder="e.g. name@domain.com"
-                          className="w-full bg-luxury-obsidian border border-white/10 rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                          placeholder="e.g. yourname@gmail.com"
+                          className={`w-full bg-luxury-obsidian border rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 ${formErrors.email ? 'border-red-500' : 'border-white/10'}`}
                         />
                       </div>
+                      {formErrors.email && (
+                        <p className="flex items-center gap-1 text-[10px] text-red-400 mt-1">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />{formErrors.email}
+                        </p>
+                      )}
                     </div>
 
                     <div className="space-y-1">
@@ -505,12 +560,17 @@ function BookingPageContent() {
                         <input
                           type="tel"
                           value={customerPhone}
-                          onChange={(e) => setCustomerPhone(e.target.value)}
+                          onChange={(e) => { setCustomerPhone(e.target.value); setFormErrors(p => ({ ...p, phone: undefined })); }}
                           required
                           placeholder="e.g. +94 77 123 4567"
-                          className="w-full bg-luxury-obsidian border border-white/10 rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200"
+                          className={`w-full bg-luxury-obsidian border rounded pl-10 pr-4 py-3 text-xs text-white focus:outline-none focus:border-luxury-gold transition-colors duration-200 ${formErrors.phone ? 'border-red-500' : 'border-white/10'}`}
                         />
                       </div>
+                      {formErrors.phone && (
+                        <p className="flex items-center gap-1 text-[10px] text-red-400 mt-1">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />{formErrors.phone}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -549,6 +609,114 @@ function BookingPageContent() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Booking Confirmation Modal ─────────────────────────────────────── */}
+      {showConfirmModal && selectedRoom && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-modal-title"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md bg-luxury-obsidian-card border border-luxury-obsidian-border rounded-xl shadow-2xl overflow-hidden"
+          >
+            {/* Header */}
+            <div className="px-6 pt-6 pb-4 border-b border-white/5">
+              <h2 id="confirm-modal-title" className="text-lg font-serif text-white">Confirm Your Reservation</h2>
+              <p className="text-[11px] text-luxury-silver-muted mt-1">Please review your details before confirming.</p>
+            </div>
+
+            {/* Guest details */}
+            <div className="px-6 py-4 space-y-3 border-b border-white/5">
+              <h3 className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Guest Information</h3>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Name</span>
+                  <span className="text-white font-medium">{customerName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Email</span>
+                  <span className="text-white font-medium break-all text-right max-w-[60%]">{customerEmail}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Phone</span>
+                  <span className="text-white font-medium">{customerPhone}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Booking details */}
+            <div className="px-6 py-4 space-y-3 border-b border-white/5">
+              <h3 className="text-[10px] uppercase tracking-widest text-luxury-gold font-bold">Booking Details</h3>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Hotel</span>
+                  <span className="text-white font-medium">{liveHotels.find(h => h.id === selectedHotelId)?.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Room</span>
+                  <span className="text-white font-medium">{selectedRoom.roomName || selectedRoom.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Check-In</span>
+                  <span className="text-white font-medium">{checkIn}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Check-Out</span>
+                  <span className="text-white font-medium">{checkOut}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-luxury-silver-muted">Guests</span>
+                  <span className="text-white font-medium">{guests}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Total */}
+            <div className="px-6 py-4 flex justify-between items-center border-b border-white/5">
+              <span className="text-xs text-luxury-silver-muted uppercase tracking-wider">Total Amount</span>
+              <span className="text-xl font-serif text-luxury-gold font-bold">{formatPrice(selectedRoom.price * getDaysCount())}</span>
+            </div>
+
+            {/* Action buttons */}
+            <div className="px-6 py-4 flex gap-3">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-3 border border-white/10 hover:border-white/25 text-luxury-silver-muted hover:text-white rounded text-xs font-sans tracking-widest uppercase transition-all duration-200"
+              >
+                Edit Details
+              </button>
+              <button
+                onClick={handleConfirmedSubmit}
+                disabled={isSubmitting}
+                className="flex-1 py-3 bg-luxury-gold hover:bg-luxury-gold-dark text-black rounded font-sans font-bold tracking-widest text-xs uppercase transition-all duration-200 flex items-center justify-center space-x-2"
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                <span>{isSubmitting ? 'Confirming...' : 'Confirm & Reserve'}</span>
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Sticky mobile CTA — only shown when a room is selected and not yet on success screen */}
+      {selectedRoom && !bookingSuccessData && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-luxury-obsidian/95 backdrop-blur-md border-t border-luxury-obsidian-border px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] text-luxury-silver-muted truncate">{selectedRoom.roomName || selectedRoom.name}</p>
+            <p className="text-base font-serif text-luxury-gold font-bold">Rs. {selectedRoom.price?.toLocaleString()}<span className="text-[10px] font-sans font-normal text-luxury-silver-muted">/night</span></p>
+          </div>
+          <button
+            onClick={() => document.getElementById('checkout-form')?.scrollIntoView({ behavior: 'smooth' })}
+            className="shrink-0 px-5 py-3 bg-luxury-gold text-black rounded font-sans font-bold tracking-widest text-xs uppercase min-h-[44px]"
+          >
+            Book Now
+          </button>
+        </div>
+      )}
     </div>
   );
 }

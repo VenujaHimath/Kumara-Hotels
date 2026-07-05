@@ -15,6 +15,23 @@ export async function POST(request: Request) {
       );
     }
 
+    // Phone validation — strip non-digits, must be 7–15 digits
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+      return NextResponse.json(
+        { success: false, error: 'Phone number must contain between 7 and 15 digits.' },
+        { status: 400 }
+      );
+    }
+
+    // Email validation — must match user@domain.tld pattern
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
+      return NextResponse.json(
+        { success: false, error: 'Please provide a valid email address (e.g. yourname@gmail.com).' },
+        { status: 400 }
+      );
+    }
+
     // Date validation
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
