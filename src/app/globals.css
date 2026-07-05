@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-luxury-obsidian text-luxury-silver font-sans selection:bg-luxury-gold selection:text-black antialiased overflow-x-hidden;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(212, 175, 55, 0.03) 0, transparent 50%),
+      radial-gradient(at 50% 0%, rgba(255, 255, 255, 0.01) 0, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(212, 175, 55, 0.02) 0, transparent 50%);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif text-white tracking-wide;
+  }
+}
+
+/* Glassmorphism Classes */
+.glass-panel {
+  background: rgba(18, 18, 20, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-panel-hover {
+  @apply transition-all duration-500 ease-out;
+}
+
+.glass-panel-hover:hover {
+  background: rgba(18, 18, 20, 0.85);
+  border-color: rgba(212, 175, 55, 0.25);
+  box-shadow: 0 10px 30px -10px rgba(212, 175, 55, 0.1);
+  transform: translateY(-4px);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f1f23;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C5A880;
+}
+
+/* Cinematic Shine Animation */
+@keyframes shine {
+  100% {
+    left: 125%;
+  }
+}
+
+.animate-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -75%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.15) 100%
+  );
+  transform: skewX(-25deg);
+  transition: 0.75s;
+}
+
+.animate-shine:hover::after {
+  animation: shine 0.85s ease-in-out;
+}
