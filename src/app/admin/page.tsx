@@ -2,8 +2,75 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { reviews } from '@/data/hotelsData';
 import HotelEditor from '@/components/admin/HotelEditor';
+
+// ── Types for admin data (mirroring the Prisma output shapes) ────────────────
+
+interface DbRoom {
+  id: string;
+  roomName: string;
+  price: number;
+  dayoutPrice: number | null;
+  capacity: number;
+  status: string;
+  image: string;
+  facilities: string;
+  totalUnits: number | null;
+}
+
+interface DbHotel {
+  id: string;
+  name: string;
+  location: string;
+  description: string;
+  image: string;
+  facilities: string;
+  hasDayoutRates: boolean;
+  nearbyPlaces: string | null;
+  gallery: string | null;
+  slug: string | null;
+  rooms?: DbRoom[];
+}
+
+interface DbBooking {
+  id: string;
+  reservationId: string;
+  customerName: string;
+  phone: string;
+  email: string;
+  hotelId: string;
+  roomId: string;
+  checkIn: string | Date;
+  checkOut: string | Date;
+  guests: number;
+  status: string;
+  bookingType: string;
+  totalAmount: number;
+  createdAt?: string | Date;
+  hotel?: { name: string; id: string };
+  room?: { roomName: string; id: string };
+  /** Legacy flat field — present in some API responses */
+  hotelName?: string;
+}
+
+interface AdminAccount {
+  id: string;
+  name: string;
+  email: string;
+  employeeId: string;
+  role: string;
+  hasAccess: boolean;
+  createdAt?: string | Date;
+}
+
+interface CurrentUser {
+  id: string;
+  name: string;
+  email: string;
+  employeeId: string;
+  role: string;
+  hasAccess: boolean;
+}
 import { 
   BarChart3, 
   Hotel, 
@@ -15,7 +82,6 @@ import {
   Edit3, 
   Check, 
   XCircle, 
-  RotateCcw,
   Sparkles,
   Plus,
   ShieldAlert,
@@ -27,7 +93,6 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { motion } from 'framer-motion';
 
 // ── Self-contained total-units input ────────────────────────────────────────
 // Owns its own local state so parent re-renders never reset the typed value.
@@ -110,17 +175,17 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'hotels' | 'rooms' | 'bookings' | 'customers' | 'access-control' | 'profile'>('overview');
 
   // Live Data from DB
-  const [hotels, setHotels] = useState<any[]>([]);
-  const [bookings, setBookings] = useState<any[]>([]);
+  const [hotels, setHotels] = useState<DbHotel[]>([]);
+  const [bookings, setBookings] = useState<DbBooking[]>([]);
   const [hotelsLoading, setHotelsLoading] = useState(true);
   const [bookingsLoading, setBookingsLoading] = useState(true);
   const [roomStatusUpdating, setRoomStatusUpdating] = useState<string | null>(null);
   const [bookingStatusUpdating, setBookingStatusUpdating] = useState<string | null>(null);
 
   // Auth & Account Management States
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
-  const [accounts, setAccounts] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<AdminAccount[]>([]);
   const [accountsLoading, setAccountsLoading] = useState<boolean>(false);
   const [actionError, setActionError] = useState<string>('');
   const [actionSuccess, setActionSuccess] = useState<string>('');
@@ -135,7 +200,7 @@ export default function AdminDashboard() {
   const [showCurrentPwd, setShowCurrentPwd] = useState(false);
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
-  const [editingHotel, setEditingHotel] = useState<any | null>(null);
+  const [editingHotel, setEditingHotel] = useState<DbHotel | null>(null);
 
   // ── Rooms Inventory accordion ─────────────────────────────────────────────
   const [expandedHotelIds, setExpandedHotelIds] = useState<Set<string>>(new Set());
@@ -430,7 +495,7 @@ export default function AdminDashboard() {
             if (h.id === hotelId) {
               return {
                 ...h,
-                rooms: h.rooms.map((r: any) =>
+                rooms: (h.rooms || []).map((r: DbRoom) =>
                   r.id === roomId ? { ...r, status: newStatus } : r
                 )
               };
@@ -475,7 +540,7 @@ export default function AdminDashboard() {
   };
 
   // Stats calculation from live DB data
-  const allRooms = hotels.flatMap(h => (h.rooms || []).map((r: any) => ({ ...r, hotelName: h.name, hotelId: h.id })));
+  const allRooms = hotels.flatMap(h => (h.rooms || []).map((r: DbRoom) => ({ ...r, hotelName: h.name, hotelId: h.id })));
   const totalHotels = hotels.length;
   const totalRooms = allRooms.length;
   const bookedRoomsCount = allRooms.filter(r => r.status === 'Booked').length;
@@ -565,7 +630,7 @@ export default function AdminDashboard() {
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => setActiveTab(tab.id as 'overview' | 'hotels' | 'rooms' | 'bookings' | 'customers' | 'access-control' | 'profile')}
               className={`flex items-center space-x-2 px-4 py-2.5 rounded text-xs tracking-wider font-sans transition-all duration-300 ${
                 activeTab === tab.id
                   ? 'bg-luxury-gold text-black font-bold'
@@ -749,7 +814,7 @@ export default function AdminDashboard() {
               const json = await res.json();
               if (res.ok && json.success) {
                 setHotels(json.data);
-                const updated = json.data.find((h: any) => h.id === editingHotel.id);
+                const updated = json.data.find((h: DbHotel) => h.id === editingHotel.id);
                 if (updated) setEditingHotel(updated);
               }
             }}
@@ -771,9 +836,9 @@ export default function AdminDashboard() {
                 {hotels.map((hotel) => {
                   const isExpanded = expandedHotelIds.has(hotel.id);
                   const hotelRooms = hotel.rooms || [];
-                  const available = hotelRooms.filter((r: any) => r.status === 'Available').length;
-                  const booked = hotelRooms.filter((r: any) => r.status === 'Booked').length;
-                  const maintenance = hotelRooms.filter((r: any) => r.status === 'Maintenance').length;
+                  const available = hotelRooms.filter((r: DbRoom) => r.status === 'Available').length;
+                  const booked = hotelRooms.filter((r: DbRoom) => r.status === 'Booked').length;
+                  const maintenance = hotelRooms.filter((r: DbRoom) => r.status === 'Maintenance').length;
                   const isAddingRoom = addRoomFor === hotel.id;
 
                   return (
@@ -831,7 +896,7 @@ export default function AdminDashboard() {
                                     <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">{f.label}</label>
                                     <input
                                       type={f.type}
-                                      value={(newRoomForm as any)[f.key]}
+                                      value={(newRoomForm as Record<string, string>)[f.key]}
                                       onChange={e => setNewRoomForm(p => ({ ...p, [f.key]: e.target.value }))}
                                       placeholder={f.placeholder}
                                       className="w-full bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold"
@@ -883,7 +948,7 @@ export default function AdminDashboard() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {hotelRooms.map((room: any) => (
+                                  {hotelRooms.map((room: DbRoom) => (
                                     <tr key={room.id} className="border-b border-white/5 hover:bg-white/5 transition-colors duration-200">
                                       <td className="px-5 py-3 font-semibold text-white">{room.roomName}</td>
                                       <td className="px-3 py-3 text-luxury-silver-muted">{room.capacity} guests</td>
@@ -896,7 +961,7 @@ export default function AdminDashboard() {
                                           savedValue={room.totalUnits ?? 1}
                                           onSaved={(val) => {
                                             setHotels(prev => prev.map(h => h.id === hotel.id
-                                              ? { ...h, rooms: h.rooms.map((r: any) => r.id === room.id ? { ...r, totalUnits: val } : r) }
+                                              ? { ...h, rooms: (h.rooms || []).map((r: DbRoom) => r.id === room.id ? { ...r, totalUnits: val } : r) }
                                               : h
                                             ));
                                           }}
@@ -923,7 +988,7 @@ export default function AdminDashboard() {
                                           ) : (
                                             <select
                                               value={room.status}
-                                              onChange={e => handleUpdateRoomStatus(hotel.id, room.id, e.target.value as any)}
+                                              onChange={e => handleUpdateRoomStatus(hotel.id, room.id, e.target.value as 'Available' | 'Booked' | 'Maintenance')}
                                               className="bg-luxury-obsidian border border-white/10 text-[11px] text-white px-2 py-1.5 rounded focus:outline-none focus:border-luxury-gold cursor-pointer"
                                             >
                                               <option value="Available">Available</option>
@@ -1009,7 +1074,7 @@ export default function AdminDashboard() {
                 <label className="text-[9px] uppercase tracking-widest text-luxury-silver-muted font-semibold">Sort By</label>
                 <select
                   value={bookingSort}
-                  onChange={e => setBookingSort(e.target.value as any)}
+                  onChange={e => setBookingSort(e.target.value as 'date-desc' | 'date-asc' | 'hotel-asc')}
                   className="bg-luxury-obsidian border border-white/10 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-luxury-gold cursor-pointer"
                 >
                   <option value="date-desc">Date — Newest First</option>

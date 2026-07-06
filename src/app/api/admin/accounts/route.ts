@@ -3,6 +3,11 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return 'An unexpected error occurred.';
+}
+
 export async function GET() {
   try {
     const accounts = await prisma.admin.findMany({
@@ -24,7 +29,7 @@ export async function GET() {
       success: true,
       data: accounts,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching admin accounts:', error);
     return NextResponse.json(
       { success: false, error: 'Database error fetching administrative accounts.' },
@@ -66,10 +71,10 @@ export async function PATCH(request: Request) {
       message: 'Account updated successfully.',
       data: updatedAdmin,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating admin account:', error);
     return NextResponse.json(
-      { success: false, error: 'Database error updating administrative account.' },
+      { success: false, error: getErrorMessage(error) || 'Database error updating administrative account.' },
       { status: 500 }
     );
   }

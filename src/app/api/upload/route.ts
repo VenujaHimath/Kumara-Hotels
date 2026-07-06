@@ -43,10 +43,10 @@ export async function POST(request: Request) {
     const url = `/images/uploads/${safeFolder}/${filename}`;
 
     return NextResponse.json({ success: true, url });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Upload error:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to upload image.' },
+      { success: false, error: error instanceof Error ? error.message : 'Failed to upload image.' },
       { status: 500 }
     );
   }

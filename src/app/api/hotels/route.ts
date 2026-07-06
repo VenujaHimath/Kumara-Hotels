@@ -3,6 +3,11 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return 'An unexpected error occurred.';
+}
+
 export async function GET() {
   try {
     const hotels = await prisma.hotel.findMany({
@@ -14,7 +19,7 @@ export async function GET() {
       { success: true, data: hotels },
       { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching hotels:', error);
     return NextResponse.json(
       { success: false, error: 'Database error fetching hotels collection.' },
@@ -49,10 +54,10 @@ export async function PATCH(request: Request) {
     });
 
     return NextResponse.json({ success: true, data: updated, message: 'Hotel updated successfully.' });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating hotel:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to update hotel.' },
+      { success: false, error: getErrorMessage(error) || 'Failed to update hotel.' },
       { status: 500 }
     );
   }

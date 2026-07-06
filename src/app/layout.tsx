@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { LanguageProvider } from "@/context/LanguageContext";
@@ -36,24 +36,24 @@ export const metadata: Metadata = {
       follow: true,
     },
   },
-  // Mobile viewport — prevents iOS auto-zoom and ensures correct scaling
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 5,
-    userScalable: true,
-  },
   // iOS PWA / home-screen meta
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Kumara Hotels",
   },
-  // Theme color for Android Chrome address bar
-  themeColor: "#09090b",
   formatDetection: {
     telephone: false, // we use explicit tel: links; avoid iOS auto-linking random numbers
   },
+};
+
+// Viewport is now a separate export in Next.js 14+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: "#09090b",
 };
 
 export default function RootLayout({
@@ -81,4 +81,3 @@ export default function RootLayout({
     </html>
   );
 }
-

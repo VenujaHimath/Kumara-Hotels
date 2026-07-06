@@ -91,7 +91,7 @@ export async function GET(request: Request) {
       data: customerRooms,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching availability:', error);
     return NextResponse.json(
       { success: false, error: 'Database error fetching availability details.' },

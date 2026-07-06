@@ -135,7 +135,7 @@ export default function Navbar() {
                       key={lang.code}
                       role="option"
                       aria-selected={language === lang.code}
-                      onClick={() => { setLanguage(lang.code as any); setShowLangMenu(false); }}
+                      onClick={() => { setLanguage(lang.code as 'en' | 'si' | 'ta'); setShowLangMenu(false); }}
                       className={`w-full text-left px-4 py-3 text-xs tracking-wider font-sans hover:bg-white/5 transition-colors duration-200 ${
                         language === lang.code ? 'text-luxury-gold font-semibold' : 'text-luxury-silver-muted'
                       }`}
@@ -174,7 +174,7 @@ export default function Navbar() {
                   {languages.map((lang) => (
                     <button
                       key={lang.code}
-                      onClick={() => { setLanguage(lang.code as any); setShowLangMenu(false); }}
+                      onClick={() => { setLanguage(lang.code as 'en' | 'si' | 'ta'); setShowLangMenu(false); }}
                       className={`w-full text-left px-4 py-3 text-sm ${
                         language === lang.code ? 'text-luxury-gold font-bold' : 'text-luxury-silver-muted'
                       }`}

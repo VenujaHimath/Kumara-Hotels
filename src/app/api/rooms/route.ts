@@ -3,6 +3,11 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return 'An unexpected error occurred.';
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -30,10 +35,10 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({ success: true, data: room, message: 'Room created successfully.' });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating room:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to create room.' },
+      { success: false, error: getErrorMessage(error) || 'Failed to create room.' },
       { status: 500 }
     );
   }
@@ -64,10 +69,10 @@ export async function PATCH(request: Request) {
     });
 
     return NextResponse.json({ success: true, data: updatedRoom, message: 'Room updated successfully.' });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating room:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to update room.' },
+      { success: false, error: getErrorMessage(error) || 'Failed to update room.' },
       { status: 500 }
     );
   }
@@ -85,10 +90,10 @@ export async function DELETE(request: Request) {
     await prisma.room.delete({ where: { id: roomId } });
 
     return NextResponse.json({ success: true, message: 'Room deleted successfully.' });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error deleting room:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to delete room.' },
+      { success: false, error: getErrorMessage(error) || 'Failed to delete room.' },
       { status: 500 }
     );
   }

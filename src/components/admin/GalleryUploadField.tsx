@@ -53,8 +53,8 @@ export default function GalleryUploadField({ items, onChange, folder = 'gallery'
         }
       }
       onChange([...items, ...newItems]);
-    } catch (e: any) {
-      setError(e.message || 'One or more uploads failed.');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'One or more uploads failed.');
       if (newItems.length > 0) onChange([...items, ...newItems]);
     } finally {
       setUploading(false);

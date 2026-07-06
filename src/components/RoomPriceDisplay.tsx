@@ -2,13 +2,22 @@ import React from 'react';
 import { RoomData } from '@/data/hotelsData';
 import { formatPrice } from '@/lib/formatPrice';
 
+/**
+ * Minimal shape required by this component — covers both static RoomData
+ * and the live DB room objects returned by the availability API.
+ */
+interface RoomPriceShape {
+  price: number;
+  dayoutPrice?: number | null;
+}
+
 interface RoomPriceDisplayProps {
-  room: any; // Accept both static RoomData and live DB room objects
+  room: RoomData | RoomPriceShape;
   variant?: 'card' | 'inline';
 }
 
 export function RoomPriceDisplay({ room, variant = 'card' }: RoomPriceDisplayProps) {
-  if (room.dayoutPrice !== undefined) {
+  if (room.dayoutPrice != null && room.dayoutPrice !== undefined) {
     if (variant === 'inline') {
       return (
         <span className="text-luxury-gold font-serif font-bold">

@@ -49,7 +49,7 @@ export async function GET() {
       }
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching admin statistics:', error);
     return NextResponse.json(
       { success: false, error: 'Database query error generating stats.' },

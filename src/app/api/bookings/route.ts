@@ -3,6 +3,12 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
+/** Safely extract an error message from an unknown catch value. */
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return 'An unexpected error occurred.';
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -26,7 +32,7 @@ export async function POST(request: Request) {
     }
 
     // Phone validation — exactly 10 digits
-    const phoneDigits = phone.replace(/\D/g, '');
+    const phoneDigits = (phone as string).replace(/\D/g, '');
     if (phoneDigits.length !== 10) {
       return NextResponse.json(
         { success: false, error: 'Phone number must be exactly 10 digits (e.g. 0771234567).' },
@@ -35,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     // Email validation — must match user@domain.tld pattern
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((email as string).trim())) {
       return NextResponse.json(
         { success: false, error: 'Please provide a valid email address (e.g. yourname@gmail.com).' },
         { status: 400 }
@@ -143,10 +149,10 @@ export async function POST(request: Request) {
       }
     }, { status: 201 });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating booking:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Database error creating booking.' },
+      { success: false, error: getErrorMessage(error) || 'Database error creating booking.' },
       { status: 500 }
     );
   }
@@ -164,7 +170,8 @@ export async function GET() {
       }
     });
     return NextResponse.json({ success: true, data: bookings });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    console.error('Error fetching bookings:', error);
     return NextResponse.json(
       { success: false, error: 'Could not fetch bookings log.' },
       { status: 500 }
@@ -203,7 +210,6 @@ export async function PATCH(request: Request) {
         where: { roomId: updatedBooking.roomId, status: 'Confirmed' },
       });
       // If still below capacity (or at 0), restore to Available
-      // Note: only update if room isn't under Maintenance
       if (roomData?.status !== 'Maintenance' && confirmedCount < totalUnits) {
         await prisma.room.update({
           where: { id: updatedBooking.roomId },
@@ -228,10 +234,10 @@ export async function PATCH(request: Request) {
       message: 'Booking status updated successfully.',
       data: updatedBooking
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating booking status:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Database error updating booking status.' },
+      { success: false, error: getErrorMessage(error) || 'Database error updating booking status.' },
       { status: 500 }
     );
   }

@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       },
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Admin login error:', error);
     return NextResponse.json(
       { success: false, error: 'Server error during authentication.' },

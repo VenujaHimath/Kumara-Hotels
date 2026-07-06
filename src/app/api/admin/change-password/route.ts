@@ -73,7 +73,7 @@ export async function POST(request: Request) {
       message: `Password updated successfully for ${admin.name}.`,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Change password error:', error);
     return NextResponse.json(
       { success: false, error: 'Server error while updating password.' },

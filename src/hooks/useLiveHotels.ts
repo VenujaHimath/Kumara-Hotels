@@ -6,7 +6,32 @@ import { mapDbHotelToDisplay } from '@/lib/hotelMapper';
 
 export type DisplayHotel = ReturnType<typeof mapDbHotelToDisplay>;
 
-function mergeWithStatic(dbHotels: any[]): DisplayHotel[] {
+/** Minimal shape of a raw hotel object returned by /api/hotels (Prisma row). */
+interface RawDbHotel {
+  id: string;
+  slug: string | null;
+  name: string;
+  location: string;
+  description: string;
+  image: string;
+  facilities: string;
+  hasDayoutRates: boolean;
+  nearbyPlaces: string | null;
+  gallery: string | null;
+  rooms?: {
+    id: string;
+    roomName: string;
+    price: number;
+    dayoutPrice: number | null;
+    capacity: number;
+    image: string;
+    facilities: string;
+    status: string;
+    totalUnits: number | null;
+  }[];
+}
+
+function mergeWithStatic(dbHotels: RawDbHotel[]): DisplayHotel[] {
   const mapped = dbHotels.map(mapDbHotelToDisplay);
 
   if (mapped.length === 0) {
@@ -30,6 +55,7 @@ function mergeWithStatic(dbHotels: any[]): DisplayHotel[] {
         image: r.image,
         facilities: r.facilities,
         status: r.status,
+        totalUnits: 1,
       })),
     }));
   }
@@ -66,6 +92,7 @@ export function useLiveHotels() {
         image: r.image,
         facilities: r.facilities,
         status: r.status,
+        totalUnits: 1,
       })),
     }))
   );
@@ -77,7 +104,7 @@ export function useLiveHotels() {
       const res = await fetch(`/api/hotels?t=${Date.now()}`, { cache: 'no-store' });
       const json = await res.json();
       if (res.ok && json.success && json.data?.length > 0) {
-        setHotels(mergeWithStatic(json.data));
+        setHotels(mergeWithStatic(json.data as RawDbHotel[]));
       }
     } catch (e) {
       console.error('Failed to fetch live hotels:', e);

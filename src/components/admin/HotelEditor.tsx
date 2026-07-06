@@ -5,8 +5,32 @@ import ImageUploadField from './ImageUploadField';
 import GalleryUploadField, { GalleryItem } from './GalleryUploadField';
 import { Loader2, Save, Plus, Trash2, X, Bed } from 'lucide-react';
 
+interface DbRoom {
+  id: string;
+  roomName: string;
+  price: number;
+  dayoutPrice: number | null;
+  capacity: number;
+  status: string;
+  image: string;
+  facilities: string;
+}
+
+interface DbHotel {
+  id: string;
+  name: string;
+  location: string;
+  description: string;
+  image: string;
+  facilities: string;
+  hasDayoutRates: boolean;
+  nearbyPlaces: string | null;
+  gallery: string | GalleryItem[] | null;
+  rooms?: DbRoom[];
+}
+
 interface HotelEditorProps {
-  hotel: any;
+  hotel: DbHotel;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -49,7 +73,7 @@ export default function HotelEditor({ hotel, onClose, onSaved }: HotelEditorProp
   });
 
   const [rooms, setRooms] = useState<RoomForm[]>(
-    (hotel.rooms || []).map((r: any) => ({
+    (hotel.rooms || []).map((r: DbRoom) => ({
       id: r.id,
       roomName: r.roomName,
       price: String(r.price),
@@ -77,7 +101,7 @@ export default function HotelEditor({ hotel, onClose, onSaved }: HotelEditorProp
             return [];
           }
         })();
-    return raw.map((g: any, i: number) => ({
+    return raw.map((g: GalleryItem, i: number) => ({
       url: g.url,
       title: g.title || `Photo ${i + 1}`,
       category: g.category || 'Rooms',

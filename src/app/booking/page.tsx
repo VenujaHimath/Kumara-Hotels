@@ -10,6 +10,51 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { User, Phone, Mail, CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
 import Image from 'next/image';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/** Room as returned by the /api/availability endpoint. */
+interface AvailableRoom {
+  id: string;
+  name?: string;
+  roomName?: string;
+  price: number;
+  dayoutPrice?: number | null;
+  capacity: number;
+  image: string;
+  facilities: string | string[];
+  status: string;
+  fullyBooked?: boolean;
+  remainingUnits?: number;
+  totalUnits?: number;
+}
+
+/** Hotel as returned by /api/hotels (raw DB shape). */
+interface LiveHotel {
+  id: string;
+  name: string;
+  location: string;
+  description: string;
+  image: string;
+  slug: string | null;
+  facilities: string | string[];
+  rooms: (AvailableRoom & { totalUnits?: number })[];
+}
+
+/** Booking confirmation data returned by POST /api/bookings. */
+interface BookingSuccessData {
+  id: string;
+  reservationId?: string;
+  customerName: string;
+  hotelName?: string;
+  roomName?: string;
+  checkIn: string;
+  checkOut: string;
+  guests: number;
+  bookingType: string;
+  totalPrice?: number;
+  totalAmount?: number;
+}
+
 // ── Validation helpers ────────────────────────────────────────────────────────
 
 /** Strips all non-digit characters, then checks the result is exactly 10 digits. */
@@ -48,8 +93,8 @@ function BookingPageContent() {
   // Search result states
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [availableRooms, setAvailableRooms] = useState<any[]>([]);
-  const [selectedRoom, setSelectedRoom] = useState<any | null>(null);
+  const [availableRooms, setAvailableRooms] = useState<AvailableRoom[]>([]);
+  const [selectedRoom, setSelectedRoom] = useState<AvailableRoom | null>(null);
 
   // Booking details form states
   const [customerName, setCustomerName] = useState('');
@@ -57,7 +102,7 @@ function BookingPageContent() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [bookingType, setBookingType] = useState<'Night Stay' | 'Day Out' | ''>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [bookingSuccessData, setBookingSuccessData] = useState<any>(null);
+  const [bookingSuccessData, setBookingSuccessData] = useState<BookingSuccessData | null>(null);
 
   // Confirmation modal — shown before actually submitting
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -66,7 +111,7 @@ function BookingPageContent() {
   const [formErrors, setFormErrors] = useState<{ name?: string; phone?: string; email?: string; bookingType?: string }>({});
 
   // Live hotels data from DB
-  const [liveHotels, setLiveHotels] = useState<any[]>([]);
+  const [liveHotels, setLiveHotels] = useState<LiveHotel[]>([]);
   const [hotelsLoading, setHotelsLoading] = useState(true);
 
   // Fetch live hotel data from database on mount
@@ -77,20 +122,20 @@ function BookingPageContent() {
         const res = await fetch(`/api/hotels?t=${Date.now()}`, { cache: 'no-store' });
         const json = await res.json();
         if (res.ok && json.success && json.data.length > 0) {
-          setLiveHotels(json.data);
+          setLiveHotels(json.data as LiveHotel[]);
         } else {
           // Fallback to static if DB empty
           setLiveHotels(hotels.map(h => ({
             ...h,
-            rooms: h.rooms.map(r => ({ ...r, roomName: (r as any).name || (r as any).roomName }))
-          })));
+            rooms: h.rooms.map(r => ({ ...r, roomName: r.name }))
+          })) as LiveHotel[]);
         }
       } catch (e) {
         console.error('Hotels fetch failed, using static fallback');
         setLiveHotels(hotels.map(h => ({
           ...h,
-          rooms: h.rooms.map(r => ({ ...r, roomName: (r as any).name || (r as any).roomName }))
-        })));
+          rooms: h.rooms.map(r => ({ ...r, roomName: r.name }))
+        })) as LiveHotel[]);
       } finally {
         setHotelsLoading(false);
       }
@@ -114,35 +159,35 @@ function BookingPageContent() {
   useEffect(() => {
     if (paramHotel && liveHotels.length > 0) {
       setSelectedHotelId(paramHotel);
-      const matchedHotel = liveHotels.find((h: any) => h.id === paramHotel);
+      const matchedHotel = liveHotels.find((h: LiveHotel) => h.id === paramHotel);
       if (matchedHotel && paramRoom) {
         // Fetch availability data so facilities + remainingUnits are correctly populated
         fetch(`/api/availability?hotelId=${paramHotel}&guests=1&checkIn=${checkIn}&checkOut=${bookingType === 'Day Out' ? checkIn : checkOut}&bookingType=${encodeURIComponent(bookingType)}&t=${Date.now()}`, { cache: 'no-store' })
           .then(r => r.json())
           .then(json => {
             if (json.success) {
-              setAvailableRooms(json.data);
-              const matchedRoom = json.data.find((r: any) => r.id === paramRoom);
+              setAvailableRooms(json.data as AvailableRoom[]);
+              const matchedRoom = (json.data as AvailableRoom[]).find((r: AvailableRoom) => r.id === paramRoom);
               if (matchedRoom) setSelectedRoom(matchedRoom);
             } else {
               // Fallback: use hotel rooms but normalize facilities
-              const rooms = matchedHotel.rooms.map((r: any) => ({
+              const rooms: AvailableRoom[] = matchedHotel.rooms.map((r) => ({
                 ...r,
                 facilities: normalizeFacilities(r.facilities),
                 remainingUnits: r.totalUnits ?? 1,
                 fullyBooked: r.status === 'Booked',
               }));
-              setAvailableRooms(rooms.filter((r: any) => !r.fullyBooked));
-              const matchedRoom = rooms.find((r: any) => r.id === paramRoom);
+              setAvailableRooms(rooms.filter((r: AvailableRoom) => !r.fullyBooked));
+              const matchedRoom = rooms.find((r: AvailableRoom) => r.id === paramRoom);
               if (matchedRoom) setSelectedRoom(matchedRoom);
             }
           })
           .catch(() => {
-            const rooms = matchedHotel.rooms.map((r: any) => ({
+            const rooms: AvailableRoom[] = matchedHotel.rooms.map((r) => ({
               ...r,
               facilities: normalizeFacilities(r.facilities),
             }));
-            setAvailableRooms(rooms.filter((r: any) => r.status === 'Available'));
+            setAvailableRooms(rooms.filter((r: AvailableRoom) => r.status === 'Available'));
           });
         setHasSearched(true);
       }
@@ -176,7 +221,7 @@ function BookingPageContent() {
     setSelectedRoom(null);
   };
 
-  const handleSelectRoom = (room: any) => {
+  const handleSelectRoom = (room: AvailableRoom) => {
     setSelectedRoom(room);
     setTimeout(() => {
       document.getElementById('checkout-form')?.scrollIntoView({ behavior: 'smooth' });
@@ -267,7 +312,7 @@ function BookingPageContent() {
   };
 
   // Returns the per-unit price based on selected booking type
-  const getUnitPrice = (room: any) => {
+  const getUnitPrice = (room: AvailableRoom) => {
     if (bookingType === 'Day Out' && room?.dayoutPrice) return room.dayoutPrice;
     return room?.price ?? 0;
   };
@@ -498,7 +543,7 @@ function BookingPageContent() {
             {hasSearched && (
               <div className="space-y-6">
                 <h2 className="text-xl md:text-2xl font-serif text-white border-b border-white/5 pb-2">
-                  {t('availableRooms')} ({availableRooms.filter((r: any) => !r.fullyBooked).length})
+                  {t('availableRooms')} ({availableRooms.filter((r: AvailableRoom) => !r.fullyBooked).length})
                 </h2>
 
                 {availableRooms.length === 0 ? (
@@ -508,7 +553,7 @@ function BookingPageContent() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {availableRooms.map((room: any) => {
+                    {availableRooms.map((room: AvailableRoom) => {
                       const isSelected = selectedRoom?.id === room.id;
                       const isFullyBooked = room.fullyBooked === true;
                       return (
@@ -525,7 +570,7 @@ function BookingPageContent() {
                           <div className="relative h-48 overflow-hidden">
                             <Image
                               src={room.image}
-                              alt={room.roomName || room.name}
+                              alt={room.roomName || room.name || 'Room'}
                               fill
                               className="object-cover object-center group-hover:scale-105 transition-transform duration-500"
                             />
@@ -567,7 +612,7 @@ function BookingPageContent() {
                                   <p className="text-[10px] text-amber-400">
                                     Only {room.remainingUnits} rooms left
                                   </p>
-                                ) : room.totalUnits > 1 ? (
+                                ) : (room.totalUnits ?? 0) > 1 ? (
                                   <p className="text-[10px] text-emerald-400">
                                     {room.remainingUnits} rooms available
                                   </p>
