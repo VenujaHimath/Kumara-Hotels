@@ -1,6 +1,5 @@
 "use client";
 
-import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/context/LanguageContext';
@@ -12,17 +11,15 @@ import WhatsAppConfirmModal from '@/components/WhatsAppConfirmModal';
 import { MapPin, CheckCircle, ArrowLeft, MessageCircle, Sparkles, Loader2 } from 'lucide-react';
 
 interface HotelDetailPageProps {
-  params: Promise<{
+  params: {
     slug: string;
-  }>;
+  };
 }
 
 export default function HotelDetailPage({ params }: HotelDetailPageProps) {
   const router = useRouter();
   const { translateFacility } = useLanguage();
-  // Next.js 14 passes params as a plain object in the App Router — use React.use() for the async variant
-  const resolvedParams = React.use(params);
-  const { hotel, loading } = useLiveHotel(resolvedParams.slug);
+  const { hotel, loading } = useLiveHotel(params.slug);
   const { openWhatsApp, confirmProps } = useWhatsApp();
 
   if (!hotel && !loading) {
